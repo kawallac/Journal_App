@@ -293,8 +293,12 @@ document.addEventListener("DOMContentLoaded", () => {
         </div>
       </div>
 
-      <div>
-              <div class="image-section">
+      <div class="entry-tag-bar">
+        <div class="field-label">Tags on this entry</div>
+        <div id="entry-tag-list" class="entry-tag-list"></div>
+      </div>
+
+      <div class="image-section">
         <div class="image-upload-row">
           <div>
             <div class="field-label">Journal Page Photo</div>
@@ -327,6 +331,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     wireEditorInputs();
     renderTagsOnImage();
+    renderEntryTagBar();
   }
 
   function wireEditorInputs() {
@@ -401,6 +406,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const imagePreview = document.getElementById("image-preview");
     if (!imagePreview) return;
 
+    // Remove any existing tag pills inside the image area
     [...imagePreview.querySelectorAll(".tag-pill")].forEach(el => el.remove());
 
     const entry = getCurrentEntryObject();
@@ -465,6 +471,37 @@ document.addEventListener("DOMContentLoaded", () => {
       });
 
       imagePreview.appendChild(el);
+    });
+  }
+
+  function renderEntryTagBar() {
+    const listEl = document.getElementById("entry-tag-list");
+    if (!listEl) return;
+
+    listEl.innerHTML = "";
+
+    if (!currentTags || currentTags.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "entry-tag-empty";
+      empty.textContent = "No tags yet.";
+      listEl.appendChild(empty);
+      return;
+    }
+
+    currentTags.forEach(tag => {
+      const pill = document.createElement("span");
+      pill.className = "entry-tag-pill";
+      pill.textContent = tag.text || "Tag";
+      // Match the tag color used on the photo tags
+      pill.style.backgroundColor = tag.color || TAG_COLORS[0];
+      pill.style.color = "#ffffff";
+      // Make it look like the on-photo tag pill
+      pill.style.borderRadius = "999px";
+      pill.style.padding = "0.15rem 0.6rem";
+      pill.style.display = "inline-flex";
+      pill.style.alignItems = "center";
+      pill.style.justifyContent = "center";
+      listEl.appendChild(pill);
     });
   }
 
@@ -578,24 +615,29 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     renderTagsOnImage();
+    renderEntryTagBar();
     hideTagDialog();
   }
 
   function createNewTagAtCenter() {
-    const imagePreview = document.getElementById("image-preview");
     const entry = getCurrentEntryObject();
-    if (!imagePreview || !entry || !entry.imageData) {
-      updateStatus("Add an image first.");
+    if (!entry) {
+      updateStatus("Create an entry first.");
       return;
     }
+
+    const hasImage = !!entry.imageData;
 
     const newTag = {
       id: generateId(),
       text: "Tag",
-      x: 50,
-      y: 50,
       color: TAG_COLORS[0]
     };
+
+    if (hasImage) {
+      newTag.x = 10;  // 10% from left
+      newTag.y = 10;  // 10% from top
+    }
 
     currentTags.push(newTag);
     entry.tags = [...currentTags];
@@ -603,6 +645,7 @@ document.addEventListener("DOMContentLoaded", () => {
     journalService.saveAll(entries);
 
     renderTagsOnImage();
+    renderEntryTagBar();
     openTagDialog(newTag.id);
   }
 
@@ -1124,3 +1167,5 @@ document.addEventListener("DOMContentLoaded", () => {
 
   init();
 });
+
+

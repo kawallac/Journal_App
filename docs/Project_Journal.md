@@ -26,7 +26,10 @@ v0.4.2 Corrected prev/next buttons, entries are chronological order
 v0.4.3 Inprogress, Add a calendar in the left sidebar
 	-functioning, but still needs improvements
 
-
+v0.4.3.2 Added tag bar and moved image storage to IndexDB
+v0.4.3.3 stopped the tag on photo auto paste
+v0.4.3.4 drag and drop from the tag bar
+v0.4.3.5 polished tag bar
 
 # Notes
 
