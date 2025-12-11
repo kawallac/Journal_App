@@ -30,10 +30,18 @@ v0.4.3.2 Added tag bar and moved image storage to IndexDB
 v0.4.3.3 stopped the tag on photo auto paste
 v0.4.3.4 drag and drop from the tag bar
 v0.4.3.5 polished tag bar
-v0.4.4
+v0.4.4.0 (25.12.10)
 	-fixed tag pill showing centered on photo at new tag execution
 	-Fixed timezone issue with calendar
 	-Added method to delete tags
+v0.4.4.1 (25.12.11)
+	-improved double click feel on tag pills
+	-moved new entry and new tag buttons to the page entry form
+	-removed status box in the page header
+	-changed style of buttons on top of the entry page
+
+
+
 # Notes
 
 
