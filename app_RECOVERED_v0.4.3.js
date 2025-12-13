@@ -17,13 +17,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // ============================================
 
   function formatDateForInput(date) {
-    // Use LOCAL date components so the app respects the user's local time zone
-    // instead of UTC (toISOString() would roll the date forward in the evening
-    // for users in negative time zones like EST).
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const day = String(date.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
+    return date.toISOString().slice(0, 10);
   }
 
   function generateId() {
@@ -38,16 +32,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const statusEl = document.getElementById("status-text");
     if (statusEl) statusEl.textContent = text;
   }
-
-  function flashSaveButton() {
-  const btn = document.getElementById("save-btn");
-  if (!btn) return;
-  btn.classList.add("btn-accent-flash");
-  setTimeout(() => {
-    btn.classList.remove("btn-accent-flash");
-  }, 700);
-}
-
 
   // Simple helper to know if search page is visible
   function isSearchVisible() {
@@ -288,8 +272,6 @@ document.addEventListener("DOMContentLoaded", () => {
   let tagDialogInput = null;
   let tagDialogColorSwatches = [];
   let tagDialogActiveTagId = null;
-  let tagDialogMode = "edit"; // "edit" | "create"
-  let tagDialogDeleteBtn = null;
 
   const TAG_COLORS = [
     "#2563eb",
@@ -299,109 +281,6 @@ document.addEventListener("DOMContentLoaded", () => {
     "#7c3aed",
     "#0f766e"
   ];
-
-// ============================================
-// Delete Confirm Dialog
-// ============================================
-
-let deleteConfirmBackdrop = null;
-
-function ensureDeleteConfirmDialog() {
-  if (deleteConfirmBackdrop) return;
-
-  deleteConfirmBackdrop = document.createElement("div");
-  deleteConfirmBackdrop.className = "confirm-backdrop";
-  deleteConfirmBackdrop.id = "delete-confirm-backdrop";
-
-  const dialog = document.createElement("div");
-  dialog.className = "confirm-dialog";
-  dialog.innerHTML = `
-    <h3 class="confirm-title">Are you sure?</h3>
-    <div class="confirm-actions">
-      <button type="button" class="confirm-circle-btn" id="delete-confirm-yes" aria-label="Confirm delete">✓</button>
-      <button type="button" class="confirm-circle-btn" id="delete-confirm-no" aria-label="Cancel delete">×</button>
-    </div>
-  `;
-
-  deleteConfirmBackdrop.appendChild(dialog);
-  document.body.appendChild(deleteConfirmBackdrop);
-
-  // Click outside closes (cancel)
-  deleteConfirmBackdrop.addEventListener("click", (e) => {
-    if (e.target === deleteConfirmBackdrop) closeDeleteConfirm();
-  });
-
-  // Buttons
-  const yesBtn = dialog.querySelector("#delete-confirm-yes");
-  const noBtn = dialog.querySelector("#delete-confirm-no");
-
-  yesBtn.addEventListener("click", () => {
-    closeDeleteConfirm();
-    deleteCurrentEntryShowPrev();
-  });
-
-  noBtn.addEventListener("click", () => {
-    closeDeleteConfirm();
-  });
-
-  // Escape closes (cancel)
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && isDeleteConfirmOpen()) {
-      closeDeleteConfirm();
-    }
-  });
-}
-
-function isDeleteConfirmOpen() {
-  return deleteConfirmBackdrop && deleteConfirmBackdrop.style.display === "flex";
-}
-
-function openDeleteConfirm() {
-  if (!currentEntryId) return;
-  ensureDeleteConfirmDialog();
-  deleteConfirmBackdrop.style.display = "flex";
-}
-
-function closeDeleteConfirm() {
-  if (!deleteConfirmBackdrop) return;
-  deleteConfirmBackdrop.style.display = "none";
-}
-
-/**
- * Delete the current entry and then show the PREVIOUS entry (chronologically).
- * If the deleted entry was the first, show the new first entry.
- * If there are no entries left, clear the editor.
- */
-function deleteCurrentEntryShowPrev() {
-  if (!currentEntryId) return;
-
-  const sortedBefore = getChronologicallySortedEntries();
-  const sortedIdx = sortedBefore.findIndex(e => e.id === currentEntryId);
-  if (sortedIdx === -1) return;
-
-  // Remove from the main entries array by ID (safer than index assumptions)
-  const rawIdx = entries.findIndex(e => e.id === currentEntryId);
-  if (rawIdx === -1) return;
-
-  entries.splice(rawIdx, 1);
-  journalService.saveAll(entries);
-
-  const sortedAfter = getChronologicallySortedEntries();
-  if (sortedAfter.length === 0) {
-    currentEntryId = null;
-    editorInnerEl.innerHTML = "";
-    updateNavButtons();
-    renderCalendar();
-    currentDayIso = null;
-    currentDayEntries = [];
-    renderDayResults();
-    return;
-  }
-
-  const targetIdx = Math.max(0, sortedIdx - 1);
-  goToEntryAtIndex(targetIdx);
-}
-
 
   // ============================================
   // Core Helpers
@@ -587,6 +466,7 @@ function deleteCurrentEntryShowPrev() {
     }
   }
 
+
   function wireEditorInputs() {
     const dateInput = document.getElementById("entry-date");
     const titleInput = document.getElementById("entry-title");
@@ -671,6 +551,7 @@ function deleteCurrentEntryShowPrev() {
         }
       });
     }
+
   }
 
   // ============================================
@@ -691,18 +572,11 @@ function deleteCurrentEntryShowPrev() {
     if (!hasImage) return;
 
     currentTags.forEach(tag => {
-      // For new tags that haven't been placed yet, we don't render them on the image.
-      // They will only show in the tag bar until the user drags them onto the photo
-      // and we assign x/y coordinates.
-      if (typeof tag.x !== "number" || typeof tag.y !== "number") {
-        return;
-      }
-
       const el = document.createElement("div");
       el.className = "tag-pill";
       el.textContent = tag.text || "Tag";
-      el.style.left = `${tag.x}%`;
-      el.style.top = `${tag.y}%`;
+      el.style.left = `${tag.x || 50}%`;
+      el.style.top = `${tag.y || 50}%`;
       el.style.backgroundColor = tag.color || TAG_COLORS[0];
       el.dataset.tagId = tag.id;
 
@@ -752,7 +626,7 @@ function deleteCurrentEntryShowPrev() {
 
       el.addEventListener("dblclick", (evt) => {
         evt.stopPropagation();
-        openTagDialog(tag.id, "edit");
+        openTagDialog(tag.id);
       });
 
       imagePreview.appendChild(el);
@@ -791,119 +665,90 @@ function deleteCurrentEntryShowPrev() {
       // Allow editing tag text/color from the bar
       pill.addEventListener("dblclick", (evt) => {
         evt.stopPropagation();
-        openTagDialog(tag.id, "edit");
+        openTagDialog(tag.id);
       });
 
-// Drag from tag bar onto image
-pill.addEventListener("mousedown", (evt) => {
-  evt.preventDefault();
+      // Drag from tag bar onto image
+      pill.addEventListener("mousedown", (evt) => {
+        evt.preventDefault();
 
-  const imagePreview = document.getElementById("image-preview");
-  const imgEl = imagePreview ? imagePreview.querySelector("img") : null;
+        const imagePreview = document.getElementById("image-preview");
+        const imgEl = imagePreview ? imagePreview.querySelector("img") : null;
 
-  // If there's no image, don't start a drag onto the photo
-  if (!imgEl) {
-    updateStatus("Add an image first to place tags on the photo");
-    return;
-  }
+        // If there's no image, don't start a drag onto the photo
+        if (!imgEl) {
+          updateStatus("Add an image first to place tags on the photo");
+          return;
+        }
 
-  const startX = evt.clientX;
-  const startY = evt.clientY;
-  let isDragging = false;
-  let ghost = null;
+        // Create a simple ghost pill that follows the cursor
+        const ghost = document.createElement("div");
+        ghost.className = "tag-pill";
+        ghost.textContent = tag.text || "Tag";
+        ghost.style.position = "fixed";
+        ghost.style.pointerEvents = "none";
+        ghost.style.zIndex = "9999";
+        ghost.style.backgroundColor = tag.color || TAG_COLORS[0];
+        ghost.style.color = "#ffffff";
+        ghost.style.borderRadius = "999px";
+        ghost.style.padding = "0.15rem 0.6rem";
+        document.body.appendChild(ghost);
 
-  function updateGhostPosition(moveEvt) {
-    if (!ghost) return;
-    ghost.style.left = moveEvt.clientX + 8 + "px";
-    ghost.style.top = moveEvt.clientY + 8 + "px";
-  }
+        function updateGhostPosition(moveEvt) {
+          ghost.style.left = moveEvt.clientX + 8 + "px";
+          ghost.style.top = moveEvt.clientY + 8 + "px";
+        }
 
-  function startDrag(startEvt) {
-    if (isDragging) return;
-    isDragging = true;
+        updateGhostPosition(evt);
 
-    ghost = document.createElement("div");
-    ghost.className = "tag-pill";
-    ghost.textContent = tag.text || "Tag";
-    ghost.style.position = "fixed";
-    ghost.style.pointerEvents = "none";
-    ghost.style.zIndex = "9999";
-    ghost.style.backgroundColor = tag.color || TAG_COLORS[0];
-    ghost.style.color = "#ffffff";
-    ghost.style.borderRadius = "999px";
-    ghost.style.padding = "0.15rem 0.6rem";
+        function onMove(moveEvt) {
+          updateGhostPosition(moveEvt);
+        }
 
-    document.body.appendChild(ghost);
-    updateGhostPosition(startEvt);
-  }
+        function onUp(upEvt) {
+          document.removeEventListener("mousemove", onMove);
+          document.removeEventListener("mouseup", onUp);
+          if (ghost.parentNode) {
+            ghost.parentNode.removeChild(ghost);
+          }
 
-  function onMove(moveEvt) {
-    const dx = moveEvt.clientX - startX;
-    const dy = moveEvt.clientY - startY;
-    const distSq = dx * dx + dy * dy;
+          const rect = imgEl.getBoundingClientRect();
+          const x = upEvt.clientX;
+          const y = upEvt.clientY;
 
-    // Only start a drag if the mouse has moved a bit (e.g. > 5px)
-    if (!isDragging) {
-      if (distSq < 25) {
-        return; // still just a click, not a drag
-      }
-      startDrag(moveEvt);
-      return;
-    }
+          // Only place the tag if the drop ends inside the image bounds
+          if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+            return;
+          }
 
-    updateGhostPosition(moveEvt);
-  }
+          const xPercent = ((x - rect.left) / rect.width) * 100;
+          const yPercent = ((y - rect.top) / rect.height) * 100;
 
-  function onUp(upEvt) {
-    document.removeEventListener("mousemove", onMove);
-    document.removeEventListener("mouseup", onUp);
+          const tagObj = currentTags.find(t => t.id === tag.id);
+          if (!tagObj) return;
 
-    // If we never started dragging, do nothing.
-    // (Click/double-click behavior is handled by the dblclick handler.)
-    if (!isDragging) {
-      return;
-    }
+          tagObj.x = Math.min(100, Math.max(0, xPercent));
+          tagObj.y = Math.min(100, Math.max(0, yPercent));
 
-    if (ghost && ghost.parentNode) {
-      ghost.parentNode.removeChild(ghost);
-    }
+          const entry = getCurrentEntryObject();
+          if (entry) {
+            entry.tags = [...currentTags];
+            entry.updatedAt = new Date().toISOString();
+            journalService.saveAll(entries);
+            renderTagsOnImage();
+            updateStatus("Tag placed on image");
+          }
+        }
 
-    const rect = imgEl.getBoundingClientRect();
-    const x = upEvt.clientX;
-    const y = upEvt.clientY;
-
-    // Only place the tag if the drop ends inside the image bounds
-    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
-      return;
-    }
-
-    const xPercent = ((x - rect.left) / rect.width) * 100;
-    const yPercent = ((y - rect.top) / rect.height) * 100;
-
-    const tagObj = currentTags.find(t => t.id === tag.id);
-    if (!tagObj) return;
-
-    tagObj.x = Math.min(100, Math.max(0, xPercent));
-    tagObj.y = Math.min(100, Math.max(0, yPercent));
-
-    const entry = getCurrentEntryObject();
-    if (entry) {
-      entry.tags = [...currentTags];
-      entry.updatedAt = new Date().toISOString();
-      journalService.saveAll(entries);
-      renderTagsOnImage();
-      updateStatus("Tag placed on image");
-    }
-  }
-
-  document.addEventListener("mousemove", onMove);
-  document.addEventListener("mouseup", onUp);
-});
-
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+      });
 
       listEl.appendChild(pill);
     });
   }
+
+
 
   function setupTagDialog() {
     tagDialogBackdrop = document.createElement("div");
@@ -922,11 +767,8 @@ pill.addEventListener("mousedown", (evt) => {
         <div class="tag-dialog-colors" id="tag-dialog-colors"></div>
       </div>
       <div class="tag-dialog-buttons">
-        <button type="button" class="btn-danger" id="tag-dialog-delete">Delete tag</button>
-        <div class="tag-dialog-buttons-right">
-          <button type="button" class="btn-secondary" id="tag-dialog-cancel">Cancel</button>
-          <button type="button" class="btn-primary" id="tag-dialog-apply">Apply</button>
-        </div>
+        <button type="button" class="btn-secondary" id="tag-dialog-cancel">Cancel</button>
+        <button type="button" class="btn-primary" id="tag-dialog-apply">Apply</button>
       </div>
     `;
 
@@ -937,7 +779,6 @@ pill.addEventListener("mousedown", (evt) => {
     const colorsContainer = dialog.querySelector("#tag-dialog-colors");
     const applyBtn = dialog.querySelector("#tag-dialog-apply");
     const cancelBtn = dialog.querySelector("#tag-dialog-cancel");
-    tagDialogDeleteBtn = dialog.querySelector("#tag-dialog-delete");
 
     TAG_COLORS.forEach(color => {
       const swatch = document.createElement("button");
@@ -963,12 +804,6 @@ pill.addEventListener("mousedown", (evt) => {
       applyTagDialogChanges();
     });
 
-    if (tagDialogDeleteBtn) {
-      tagDialogDeleteBtn.addEventListener("click", () => {
-        deleteActiveTag();
-      });
-    }
-
     tagDialogBackdrop.addEventListener("click", (evt) => {
       if (evt.target === tagDialogBackdrop) {
         hideTagDialog();
@@ -976,51 +811,23 @@ pill.addEventListener("mousedown", (evt) => {
     });
   }
 
-  function openTagDialog(tagId, mode = "edit") {
-    tagDialogMode = mode;
+  function openTagDialog(tagId) {
+    const tag = currentTags.find(t => t.id === tagId);
+    if (!tag || !tagDialogBackdrop) return;
+
     tagDialogActiveTagId = tagId;
+    if (tagDialogInput) tagDialogInput.value = tag.text || "";
 
-    // Reset selection state each time
-    tagDialogColorSwatches.forEach(s => s.classList.remove("selected"));
-
-    if (mode === "edit") {
-      const tag = currentTags.find(t => t.id === tagId);
-      if (!tag || !tagDialogBackdrop) return;
-
-      if (tagDialogInput) tagDialogInput.value = tag.text || "";
-
-      const color = tag.color || TAG_COLORS[0];
-      let matched = false;
-      tagDialogColorSwatches.forEach(swatch => {
-        if (swatch.dataset.color === color) {
-          swatch.classList.add("selected");
-          matched = true;
-        }
-      });
-      if (!matched && tagDialogColorSwatches[0]) {
-        tagDialogColorSwatches[0].classList.add("selected");
+    const color = tag.color || TAG_COLORS[0];
+    tagDialogColorSwatches.forEach(swatch => {
+      if (swatch.dataset.color === color) {
+        swatch.classList.add("selected");
+      } else {
+        swatch.classList.remove("selected");
       }
+    });
 
-      if (tagDialogDeleteBtn) {
-        tagDialogDeleteBtn.style.display = "inline-flex";
-      }
-    } else {
-      // create mode: new tag, not yet added
-      if (tagDialogInput) tagDialogInput.value = "";
-
-      if (tagDialogColorSwatches[0]) {
-        tagDialogColorSwatches[0].classList.add("selected");
-      }
-
-      if (tagDialogDeleteBtn) {
-        // No delete for brand-new, not-yet-created tags
-        tagDialogDeleteBtn.style.display = "none";
-      }
-    }
-
-    if (tagDialogBackdrop) {
-      tagDialogBackdrop.style.display = "flex";
-    }
+    tagDialogBackdrop.style.display = "flex";
     if (tagDialogInput) tagDialogInput.focus();
   }
 
@@ -1029,50 +836,23 @@ pill.addEventListener("mousedown", (evt) => {
       tagDialogBackdrop.style.display = "none";
     }
     tagDialogActiveTagId = null;
-    tagDialogMode = "edit";
   }
 
   function applyTagDialogChanges() {
-    const entry = getCurrentEntryObject();
-    if (!entry) {
-      hideTagDialog();
-      return;
+    if (!tagDialogActiveTagId) return;
+
+    const tag = currentTags.find(t => t.id === tagDialogActiveTagId);
+    if (!tag) return;
+
+    if (tagDialogInput) tag.text = tagDialogInput.value || "Tag";
+
+    const selectedSwatch = tagDialogColorSwatches.find(s => s.classList.contains("selected"));
+    if (selectedSwatch) {
+      tag.color = selectedSwatch.dataset.color || tag.color;
     }
 
-    const textValue = tagDialogInput ? (tagDialogInput.value || "Tag") : "Tag";
-    const selectedSwatch = tagDialogColorSwatches.find(s => s.classList.contains("selected"));
-    const colorValue = selectedSwatch ? (selectedSwatch.dataset.color || TAG_COLORS[0]) : TAG_COLORS[0];
-
-    if (tagDialogMode === "create") {
-      // Create a brand-new tag, only after user hits Apply
-      const newTag = {
-        id: generateId(),
-        text: textValue,
-        color: colorValue
-        // no x/y yet -> lives only in tag bar until placed
-      };
-
-      currentTags.push(newTag);
-      entry.tags = [...currentTags];
-      entry.updatedAt = new Date().toISOString();
-      journalService.saveAll(entries);
-      updateStatus("Tag created");
-    } else {
-      // Edit existing tag
-      if (!tagDialogActiveTagId) {
-        hideTagDialog();
-        return;
-      }
-
-      const tag = currentTags.find(t => t.id === tagDialogActiveTagId);
-      if (!tag) {
-        hideTagDialog();
-        return;
-      }
-
-      tag.text = textValue;
-      tag.color = colorValue;
-
+    const entry = getCurrentEntryObject();
+    if (entry) {
       entry.tags = [...currentTags];
       entry.updatedAt = new Date().toISOString();
       journalService.saveAll(entries);
@@ -1084,44 +864,29 @@ pill.addEventListener("mousedown", (evt) => {
     hideTagDialog();
   }
 
-  function deleteActiveTag() {
-    if (!tagDialogActiveTagId) {
-      hideTagDialog();
-      return;
-    }
+function createNewTagAtCenter() {
+ const entry = getCurrentEntryObject();
+ if (!entry) {
+   updateStatus("Create an entry first.");
+   return;
+ }
 
-    const idx = currentTags.findIndex(t => t.id === tagDialogActiveTagId);
-    if (idx === -1) {
-      hideTagDialog();
-      return;
-    }
+ const newTag = {
+   id: generateId(),
+   text: "Tag",
+   color: TAG_COLORS[0]
+ };
 
-    currentTags.splice(idx, 1);
+ currentTags.push(newTag);
+ entry.tags = [...currentTags];
+ entry.updatedAt = new Date().toISOString();
+ journalService.saveAll(entries);
 
-    const entry = getCurrentEntryObject();
-    if (entry) {
-      entry.tags = [...currentTags];
-      entry.updatedAt = new Date().toISOString();
-      journalService.saveAll(entries);
-      updateStatus("Tag deleted");
-    }
+ renderTagsOnImage();
+ renderEntryTagBar();
+ openTagDialog(newTag.id);
+}
 
-    renderTagsOnImage();
-    renderEntryTagBar();
-    hideTagDialog();
-  }
-
-  function createNewTagAtCenter() {
-    const entry = getCurrentEntryObject();
-    if (!entry) {
-      updateStatus("Create an entry first.");
-      return;
-    }
-
-    // Open the tag dialog in "create" mode. We will actually create/persist
-    // the tag only after the user hits Apply.
-    openTagDialog(null, "create");
-  }
 
   // ============================================
   // CRUD: New / Save / Delete / Navigation
@@ -1167,9 +932,7 @@ pill.addEventListener("mousedown", (evt) => {
     updateNavButtons();
     renderCalendar();
     updateStatus("Entry saved");
-    flashSaveButton();
   }
-
 
   function deleteCurrentEntry() {
     if (!currentEntryId) return;
@@ -1593,7 +1356,7 @@ pill.addEventListener("mousedown", (evt) => {
     }
 
     if (deleteBtnTop) {
-      deleteBtnTop.addEventListener("click", openDeleteConfirm);
+      deleteBtnTop.addEventListener("click", deleteCurrentEntry);
     }
 
     if (prevBtn) {
@@ -1644,3 +1407,5 @@ pill.addEventListener("mousedown", (evt) => {
 
   init();
 });
+
+

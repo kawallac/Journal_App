@@ -300,109 +300,6 @@ document.addEventListener("DOMContentLoaded", () => {
     "#0f766e"
   ];
 
-// ============================================
-// Delete Confirm Dialog
-// ============================================
-
-let deleteConfirmBackdrop = null;
-
-function ensureDeleteConfirmDialog() {
-  if (deleteConfirmBackdrop) return;
-
-  deleteConfirmBackdrop = document.createElement("div");
-  deleteConfirmBackdrop.className = "confirm-backdrop";
-  deleteConfirmBackdrop.id = "delete-confirm-backdrop";
-
-  const dialog = document.createElement("div");
-  dialog.className = "confirm-dialog";
-  dialog.innerHTML = `
-    <h3 class="confirm-title">Are you sure?</h3>
-    <div class="confirm-actions">
-      <button type="button" class="confirm-circle-btn" id="delete-confirm-yes" aria-label="Confirm delete">✓</button>
-      <button type="button" class="confirm-circle-btn" id="delete-confirm-no" aria-label="Cancel delete">×</button>
-    </div>
-  `;
-
-  deleteConfirmBackdrop.appendChild(dialog);
-  document.body.appendChild(deleteConfirmBackdrop);
-
-  // Click outside closes (cancel)
-  deleteConfirmBackdrop.addEventListener("click", (e) => {
-    if (e.target === deleteConfirmBackdrop) closeDeleteConfirm();
-  });
-
-  // Buttons
-  const yesBtn = dialog.querySelector("#delete-confirm-yes");
-  const noBtn = dialog.querySelector("#delete-confirm-no");
-
-  yesBtn.addEventListener("click", () => {
-    closeDeleteConfirm();
-    deleteCurrentEntryShowPrev();
-  });
-
-  noBtn.addEventListener("click", () => {
-    closeDeleteConfirm();
-  });
-
-  // Escape closes (cancel)
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && isDeleteConfirmOpen()) {
-      closeDeleteConfirm();
-    }
-  });
-}
-
-function isDeleteConfirmOpen() {
-  return deleteConfirmBackdrop && deleteConfirmBackdrop.style.display === "flex";
-}
-
-function openDeleteConfirm() {
-  if (!currentEntryId) return;
-  ensureDeleteConfirmDialog();
-  deleteConfirmBackdrop.style.display = "flex";
-}
-
-function closeDeleteConfirm() {
-  if (!deleteConfirmBackdrop) return;
-  deleteConfirmBackdrop.style.display = "none";
-}
-
-/**
- * Delete the current entry and then show the PREVIOUS entry (chronologically).
- * If the deleted entry was the first, show the new first entry.
- * If there are no entries left, clear the editor.
- */
-function deleteCurrentEntryShowPrev() {
-  if (!currentEntryId) return;
-
-  const sortedBefore = getChronologicallySortedEntries();
-  const sortedIdx = sortedBefore.findIndex(e => e.id === currentEntryId);
-  if (sortedIdx === -1) return;
-
-  // Remove from the main entries array by ID (safer than index assumptions)
-  const rawIdx = entries.findIndex(e => e.id === currentEntryId);
-  if (rawIdx === -1) return;
-
-  entries.splice(rawIdx, 1);
-  journalService.saveAll(entries);
-
-  const sortedAfter = getChronologicallySortedEntries();
-  if (sortedAfter.length === 0) {
-    currentEntryId = null;
-    editorInnerEl.innerHTML = "";
-    updateNavButtons();
-    renderCalendar();
-    currentDayIso = null;
-    currentDayEntries = [];
-    renderDayResults();
-    return;
-  }
-
-  const targetIdx = Math.max(0, sortedIdx - 1);
-  goToEntryAtIndex(targetIdx);
-}
-
-
   // ============================================
   // Core Helpers
   // ============================================
@@ -1593,7 +1490,7 @@ pill.addEventListener("mousedown", (evt) => {
     }
 
     if (deleteBtnTop) {
-      deleteBtnTop.addEventListener("click", openDeleteConfirm);
+      deleteBtnTop.addEventListener("click", deleteCurrentEntry);
     }
 
     if (prevBtn) {
