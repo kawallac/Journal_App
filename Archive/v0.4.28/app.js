@@ -28,11 +28,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const ACTIVE_NOTEBOOK_KEY = "journalActiveNotebookId_v1";
   const APP_VERSION = "v0.4.27";
 
-  
-  // Performance guardrails (keeps UI snappy with large datasets)
-  const MAX_SEARCH_RESULTS = 200; // entries shown in Search Results
-  const MAX_TAG_RESULTS = 200;    // tags shown in Tag Browse
-// Single source of truth: write APP_VERSION into the UI on load
+  // Single source of truth: write APP_VERSION into the UI on load
   function applyAppVersionToUI() {
     const vEl = document.getElementById("app-version");
     if (vEl) vEl.textContent = APP_VERSION;
@@ -166,42 +162,6 @@ function hideEl(el) {
   el.classList.add("hidden");
 }
 
-
-// ============================================
-// Modal Manager (single Escape handler)
-// - Prevents multiple document keydown listeners for each dialog/modal
-// - Centralizes "what closes first" logic for predictable UX
-// ============================================
-
-const ModalManager = (() => {
-  const stack = []; // { id, isOpen, close }
-
-  function register(id, isOpenFn, closeFn, priority = 0) {
-    // de-dupe by id
-    const existingIdx = stack.findIndex(x => x.id === id);
-    const rec = { id, isOpen: isOpenFn, close: closeFn, priority: Number(priority) || 0 };
-    if (existingIdx >= 0) stack.splice(existingIdx, 1);
-    stack.push(rec);
-    // Highest priority first
-    stack.sort((a, b) => (b.priority - a.priority));
-  }
-
-  function closeTop() {
-    for (const rec of stack) {
-      try {
-        if (rec.isOpen && rec.isOpen()) {
-          rec.close && rec.close();
-          return true;
-        }
-      } catch (err) {
-        // Ignore and continue to next modal
-      }
-    }
-    return false;
-  }
-
-  return { register, closeTop };
-})();
 // ============================================
   // Storage Adapter + Migration
   // ============================================
@@ -494,8 +454,6 @@ const ModalManager = (() => {
   const prevBtn = document.getElementById("prev-btn");
   const nextBtn = document.getElementById("next-btn");
   const exportBtn = document.getElementById("export-btn");
-  const importBtn = document.getElementById("import-btn");
-  const importFileInput = document.getElementById("import-file-input");
 
   const editorInnerEl = document.getElementById("editor-inner");
   const pageJournal = document.getElementById("page-journal");
@@ -844,16 +802,12 @@ function closeSearchResults() {
         <div id="entry-tag-list" class="entry-tag-list"></div>
       </div>
 
-      
       <div class="image-section">
-        <div class="image-upload-row image-upload-row-stacked">
-          <div class="field-label">Journal Page Photo</div>
-          <button id="photo-add-btn" type="button" class="btn-secondary">Add Photo</button>
-          <div class="field-hint">Choose from photos or use your camera</div>
-
-          <!-- Hidden inputs (triggered from the Add Photo menu) -->
-          <input id="entry-photo" type="file" accept="image/*" class="hidden" />
-          <input id="entry-photo-camera" type="file" accept="image/*" capture="environment" class="hidden" />
+        <div class="image-upload-row">
+          <div>
+            <div class="field-label">Journal Page Photo</div>
+            <input id="entry-photo" type="file" accept="image/*" />
+          </div>
         </div>
 
         <div id="image-preview" class="image-preview">
@@ -864,7 +818,6 @@ function closeSearchResults() {
           }
         </div>
       </div>
-
 
       <div>
         <div class="field-label">Notes</div>
@@ -1006,9 +959,7 @@ function closeSearchResults() {
     const dateInput = document.getElementById("entry-date");
     const titleInput = document.getElementById("entry-title");
     const bodyInput = document.getElementById("entry-body");
-    const photoAddBtn = document.getElementById("photo-add-btn");
     const photoInput = document.getElementById("entry-photo");
-    const cameraPhotoInput = document.getElementById("entry-photo-camera");
     const imagePreview = document.getElementById("image-preview");
 
     if (dateInput) {
@@ -1038,13 +989,6 @@ function closeSearchResults() {
       });
     }
 
-
-    if (photoAddBtn) {
-      photoAddBtn.addEventListener("click", (evt) => {
-        evt.preventDefault();
-        openPhotoSourceDialog();
-      });
-    }
 
     
     // Photo upload + drag/drop
@@ -1102,27 +1046,14 @@ function closeSearchResults() {
         reader.readAsDataURL(file);
       }
 
-      // Standard file input (choose from device)
-      if (photoInput) {
-        photoInput.addEventListener("change", () => {
-          if (photoInput.files && photoInput.files[0]) {
-            handlePhotoFile(photoInput.files[0]);
-            // Reset so selecting the same file again still triggers change
-            photoInput.value = "";
-          }
-        });
-      }
-
-      // Camera input (take a photo)
-      if (cameraPhotoInput) {
-        cameraPhotoInput.addEventListener("change", () => {
-          if (cameraPhotoInput.files && cameraPhotoInput.files[0]) {
-            handlePhotoFile(cameraPhotoInput.files[0]);
-            // Reset so taking the same photo again still triggers change
-            cameraPhotoInput.value = "";
-          }
-        });
-      }
+      // Standard file input
+      photoInput.addEventListener("change", () => {
+        if (photoInput.files && photoInput.files[0]) {
+          handlePhotoFile(photoInput.files[0]);
+          // Reset the input so selecting the same file again still triggers change
+          photoInput.value = "";
+        }
+      });
 
       // Drag & drop on the preview area
       imagePreview.addEventListener("dragenter", (evt) => {
@@ -1473,7 +1404,14 @@ pill.addEventListener("mousedown", (evt) => {
         hideTagDialog();
       }
     });
-}
+
+    // Escape closes (cancel)
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && tagDialogBackdrop && !tagDialogBackdrop.classList.contains("hidden")) {
+        hideTagDialog();
+      }
+    });
+  }
 
   function openTagDialog(tagId, mode = "edit") {
     tagDialogMode = mode;
@@ -1530,9 +1468,6 @@ pill.addEventListener("mousedown", (evt) => {
     tagDialogActiveTagId = null;
     tagDialogMode = "edit";
   }
-
-  ModalManager.register("tagDialog", () => !!tagDialogBackdrop && !tagDialogBackdrop.classList.contains("hidden"), hideTagDialog, 80);
-
 
   function applyTagDialogChanges() {
     const entry = getCurrentEntryObject();
@@ -1679,7 +1614,14 @@ pill.addEventListener("mousedown", (evt) => {
       closeDeleteConfirm();
       deleteCurrentEntryShowPrev();
     });
-}
+
+    // Escape closes (cancel)
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && isDeleteConfirmOpen()) {
+        closeDeleteConfirm();
+      }
+    });
+  }
 
   function isDeleteConfirmOpen() {
     return !!deleteConfirmBackdrop && !deleteConfirmBackdrop.classList.contains("hidden");
@@ -1695,9 +1637,6 @@ pill.addEventListener("mousedown", (evt) => {
     if (!deleteConfirmBackdrop) return;
     deleteConfirmBackdrop.classList.add("hidden");
   }
-
-  ModalManager.register("deleteConfirm", isDeleteConfirmOpen, closeDeleteConfirm, 92);
-
 
   /**
    * Delete the current entry and then show the PREVIOUS entry (chronologically).
@@ -1786,7 +1725,14 @@ pill.addEventListener("mousedown", (evt) => {
       closePhotoRemoveConfirm();
       await removePhotoFromCurrentEntry();
     });
-}
+
+    // Escape closes (cancel)
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && isPhotoRemoveConfirmOpen()) {
+        closePhotoRemoveConfirm();
+      }
+    });
+  }
 
   function isPhotoRemoveConfirmOpen() {
     return (
@@ -1807,90 +1753,6 @@ pill.addEventListener("mousedown", (evt) => {
     photoRemoveConfirmBackdrop.classList.add("hidden");
   }
 
-  ModalManager.register("photoRemoveConfirm", isPhotoRemoveConfirmOpen, closePhotoRemoveConfirm, 95);
-
-
-  // ============================================
-  // Photo Source Menu (secondary menu)
-  // - Keeps the editor clean (no dual inputs)
-  // - Offers: Choose from photos OR Use camera
-  // ============================================
-
-  let photoSourceBackdrop = null;
-
-  function ensurePhotoSourceDialog() {
-    if (photoSourceBackdrop) return;
-
-    photoSourceBackdrop = document.createElement("div");
-    photoSourceBackdrop.className = "confirm-backdrop hidden";
-    photoSourceBackdrop.id = "photo-source-backdrop";
-
-    const dialog = document.createElement("div");
-    dialog.className = "photo-source-dialog";
-
-    dialog.innerHTML = `
-      <button type="button" class="confirm-close-x" aria-label="Close dialog">×</button>
-      <h3 class="photo-source-title">Add Photo</h3>
-      <div class="photo-source-actions">
-        <button type="button" class="btn-primary" id="photo-source-choose">Choose from Photos</button>
-        <button type="button" class="btn-secondary" id="photo-source-camera">Use Camera</button>
-      </div>
-    `;
-
-    photoSourceBackdrop.appendChild(dialog);
-    document.body.appendChild(photoSourceBackdrop);
-
-    // Close behaviors
-    const closeX = dialog.querySelector(".confirm-close-x");
-    if (closeX) closeX.addEventListener("click", closePhotoSourceDialog);
-
-    photoSourceBackdrop.addEventListener("click", (e) => {
-      if (e.target === photoSourceBackdrop) closePhotoSourceDialog();
-    });
-
-    // Action buttons (inputs are rendered per-entry inside the editor)
-    const chooseBtn = dialog.querySelector("#photo-source-choose");
-    const cameraBtn = dialog.querySelector("#photo-source-camera");
-
-    if (chooseBtn) {
-      chooseBtn.addEventListener("click", () => {
-        closePhotoSourceDialog();
-        const input = document.getElementById("entry-photo");
-        if (input) {
-          input.value = ""; // allow selecting same file twice
-          input.click();
-        }
-      });
-    }
-
-    if (cameraBtn) {
-      cameraBtn.addEventListener("click", () => {
-        closePhotoSourceDialog();
-        const input = document.getElementById("entry-photo-camera");
-        if (input) {
-          input.value = ""; // allow taking same photo twice
-          input.click();
-        }
-      });
-    }
-  }
-
-  function isPhotoSourceDialogOpen() {
-    return !!photoSourceBackdrop && !photoSourceBackdrop.classList.contains("hidden");
-  }
-
-  function openPhotoSourceDialog() {
-    ensurePhotoSourceDialog();
-    showEl(photoSourceBackdrop);
-  }
-
-  function closePhotoSourceDialog() {
-    if (!photoSourceBackdrop) return;
-    hideEl(photoSourceBackdrop);
-  }
-
-  // Escape should close this menu before delete-confirm, but after tag dialog.
-  ModalManager.register("photoSourceMenu", isPhotoSourceDialogOpen, closePhotoSourceDialog, 94);
 
 
 
@@ -1979,7 +1841,16 @@ pill.addEventListener("mousedown", (evt) => {
     photoZoomBackdrop.addEventListener("click", (evt) => {
       if (evt.target === photoZoomBackdrop) closePhotoZoom();
     });
-// Wheel zoom + drag pan (simple, deliberate)
+
+    // Escape closes
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && isPhotoZoomOpen()) {
+        closePhotoZoom();
+      }
+    });
+
+    
+    // Wheel zoom + drag pan (simple, deliberate)
     if (body) {
       // Zoom with wheel (no modifier keys)
       body.addEventListener(
@@ -2116,10 +1987,6 @@ pill.addEventListener("mousedown", (evt) => {
     hideEl(photoZoomBackdrop);
     document.body.classList.remove("no-scroll");
   }
-
-  // Register with modal manager (Escape closes top-most modal)
-  ModalManager.register("photoZoom", isPhotoZoomOpen, closePhotoZoom, 100);
-
 
   function ensurePhotoZoomWiring() {
     // Intentionally disabled.
@@ -2393,14 +2260,6 @@ function deleteCurrentEntry() {
       nameEl.className = "journal-pill-name";
       nameEl.textContent = nb.name || "Journal";
 
-      // Rename (UI-level only): double-click the name to edit.
-      nameEl.addEventListener("dblclick", (evt) => {
-        evt.preventDefault();
-        evt.stopPropagation();
-        if (isNotebookDeleteMode) return;
-        requestRenameNotebookInline(nb.id);
-      });
-
       const metaEl = document.createElement("div");
       metaEl.className = "journal-pill-meta";
       const nCount = countEntriesForNotebook(nb.id);
@@ -2594,124 +2453,6 @@ function deleteCurrentEntry() {
     document.addEventListener("mousedown", onDocClick, true);
   }
 
-
-  function requestRenameNotebookInline(notebookId) {
-    if (!journalsListEl) return;
-
-    const target = notebooks.find(n => n.id === notebookId);
-    if (!target) return;
-
-    exitNotebookDeleteMode();
-
-    // Re-render list first so we start from a clean UI state
-    renderNotebookList();
-
-    // Find the pill for this notebook
-    const pill = journalsListEl.querySelector(`[data-notebook-id="${notebookId}"]`);
-    if (!pill) return;
-
-    // Replace pill contents with an inline rename editor (UI-only; id stays the same)
-    pill.innerHTML = "";
-    pill.classList.add("is-renaming");
-    pill.style.cursor = "default";
-
-    const input = document.createElement("input");
-    input.type = "text";
-    input.className = "journal-name-input";
-    input.placeholder = "Enter name";
-    input.value = (target.name || "Journal").toString();
-
-    const actions = document.createElement("div");
-    actions.className = "journal-inline-actions";
-
-    const okBtn = document.createElement("button");
-    okBtn.type = "button";
-    okBtn.className = "journal-inline-btn";
-    okBtn.setAttribute("aria-label", "Save journal name");
-    okBtn.textContent = "✓";
-
-    const cancelBtn = document.createElement("button");
-    cancelBtn.type = "button";
-    cancelBtn.className = "journal-inline-btn";
-    cancelBtn.setAttribute("aria-label", "Cancel rename");
-    cancelBtn.textContent = "×";
-
-    actions.appendChild(okBtn);
-    actions.appendChild(cancelBtn);
-
-    pill.appendChild(input);
-    pill.appendChild(actions);
-
-    // Select all text for fast rename
-    input.focus();
-    input.select();
-
-    function cleanup() {
-      // Just re-render; it restores normal pill UI.
-      renderNotebookList();
-    }
-
-    function save() {
-      const name = (input.value || "").toString().trim().replace(/\s+/g, " ");
-      const norm = normalizeNotebookName(name);
-      if (!norm) {
-        updateStatus("Journal name required");
-        input.focus();
-        return;
-      }
-
-      const exists = notebooks.some(n => n.id !== notebookId && normalizeNotebookName(n.name) === norm);
-      if (exists) {
-        updateStatus("That journal name already exists");
-        input.focus();
-        return;
-      }
-
-      target.name = name;
-      target.updatedAt = new Date().toISOString();
-
-      notebookService.saveAll(notebooks);
-      renderNotebookList();
-      updateStatus("Journal renamed");
-    }
-
-    okBtn.addEventListener("click", (evt) => {
-      evt.preventDefault();
-      evt.stopPropagation();
-      save();
-    });
-
-    cancelBtn.addEventListener("click", (evt) => {
-      evt.preventDefault();
-      evt.stopPropagation();
-      cleanup();
-      updateStatus("Rename canceled");
-    });
-
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        save();
-      }
-      if (e.key === "Escape") {
-        e.preventDefault();
-        cleanup();
-        updateStatus("Rename canceled");
-      }
-    });
-
-    const onDocClick = (evt) => {
-      // Click outside cancels rename
-      if (!pill.contains(evt.target)) {
-        cleanup();
-        document.removeEventListener("mousedown", onDocClick, true);
-      }
-    };
-    document.addEventListener("mousedown", onDocClick, true);
-  }
-
-
-
   let genericConfirmBackdrop = null;
   let genericConfirmTitleEl = null;
   let genericConfirmYesBtn = null;
@@ -2746,7 +2487,14 @@ function deleteCurrentEntry() {
     genericConfirmBackdrop.addEventListener("click", (e) => {
       if (e.target === genericConfirmBackdrop) closeGenericConfirm();
     });
-if (genericConfirmYesBtn) {
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && genericConfirmBackdrop && !genericConfirmBackdrop.classList.contains("hidden")) {
+        closeGenericConfirm();
+      }
+    });
+
+    if (genericConfirmYesBtn) {
       genericConfirmYesBtn.addEventListener("click", async () => {
         closeGenericConfirm();
         if (typeof genericConfirmOnYes === "function") {
@@ -2770,13 +2518,12 @@ if (genericConfirmYesBtn) {
     genericConfirmOnYes = null;
   }
 
-  ModalManager.register("genericConfirm", () => !!genericConfirmBackdrop && !genericConfirmBackdrop.classList.contains("hidden"), closeGenericConfirm, 90);
-
-
   function requestDeleteNotebook(notebookId) {
-    // Allow deleting the last remaining journal.
-    // If the user deletes the final journal, we immediately create a fresh default journal
-    // so the app always has a valid active journal to operate on.
+    if (notebooks.length <= 1) {
+      updateStatus("You must keep at least one journal");
+      exitNotebookDeleteMode();
+      return;
+    }
 
     const target = notebooks.find(n => n.id === notebookId);
     if (!target) return;
@@ -2789,13 +2536,6 @@ if (genericConfirmYesBtn) {
       journalService.saveAll(entries);
 
       notebooks = notebooks.filter(n => n.id !== notebookId);
-
-      // If the user deleted the last journal, recreate a clean default journal
-      // so the app never ends up in a "no active journal" state.
-      if (notebooks.length === 0) {
-        notebooks = migrateNotebooks([]); // produces default
-      }
-
       notebookService.saveAll(notebooks);
 
       if (activeNotebookId === notebookId) {
@@ -3198,28 +2938,9 @@ function entryMatchesQuery(entry, qLower) {
       return;
     }
 
-    // Performance guardrail: limit large result sets so the UI stays fast.
-    // We show the first N results and prompt the user to refine their query.
-    const isTagMode = opts && opts.mode === "tags";
-    const limit = isTagMode ? MAX_TAG_RESULTS : MAX_SEARCH_RESULTS;
-
-    const totalCount = Array.isArray(results) ? results.length : 0;
-    const isLimited = totalCount > limit;
-    const limitedResults = isLimited ? results.slice(0, limit) : results;
-
-    function appendLimitNotice() {
-      const note = document.createElement("div");
-      note.className = "search-result-snippet search-limit-note";
-      note.textContent = `Showing first ${limit} of ${totalCount}. Refine your search to narrow results.`;
-      searchResultsEl.appendChild(note);
-    }
-
-    if (isLimited) appendLimitNotice();
-
-
 // Tag browse mode: results are tag records, not entries
 if (opts.mode === "tags") {
-  if (!limitedResults || limitedResults.length === 0) {
+  if (!results || results.length === 0) {
     const msg = document.createElement("div");
     msg.className = "search-result-snippet";
     msg.textContent = "No tags found. Try a different filter.";
@@ -3227,9 +2948,7 @@ if (opts.mode === "tags") {
     return;
   }
 
-  const frag = document.createDocumentFragment();
-
-  limitedResults.forEach(tagRec => {
+  results.forEach(tagRec => {
     const item = document.createElement("div");
     item.className = "search-result-item";
     item.dataset.tagNorm = tagRec.norm || "";
@@ -3251,15 +2970,13 @@ if (opts.mode === "tags") {
       runSearchEntriesByNormalizedTagInScope(tagRec.norm, tagRec.display || tagRec.norm, opts.scopeSpec || { scope: "active" });
     });
 
-    frag.appendChild(item);
+    searchResultsEl.appendChild(item);
   });
 
-  searchResultsEl.appendChild(frag);
-  if (isLimited) appendLimitNotice();
   return;
 }
 
-if (!limitedResults || limitedResults.length === 0) {
+if (!results || results.length === 0) {
       const msg = document.createElement("div");
       msg.className = "search-result-snippet";
       msg.textContent = "No results. Try a different query.";
@@ -3267,9 +2984,7 @@ if (!limitedResults || limitedResults.length === 0) {
       return;
     }
 
-    const frag = document.createDocumentFragment();
-
-    limitedResults.forEach(entry => {
+    results.forEach(entry => {
       const item = document.createElement("div");
       item.className = "search-result-item";
       item.dataset.entryId = entry.id;
@@ -3321,11 +3036,8 @@ if (!limitedResults || limitedResults.length === 0) {
         }
       });
 
-      frag.appendChild(item);
+      searchResultsEl.appendChild(item);
     });
-
-    searchResultsEl.appendChild(frag);
-    if (isLimited) appendLimitNotice();
   }
 
   // ============================================
@@ -3439,7 +3151,7 @@ if (!limitedResults || limitedResults.length === 0) {
     showEl(dayResultsEl);
 
     const card = document.createElement("div");
-    card.className = "day-results-card card";
+    card.className = "day-results-card";
 
     const titleEl = document.createElement("div");
     titleEl.className = "day-results-title";
@@ -3539,151 +3251,6 @@ if (!limitedResults || limitedResults.length === 0) {
     updateStatus("Exported entries as JSON");
   }
 
-
-  function parseImportedPayload(payload) {
-    // Accept either:
-    // 1) legacy export: [entries...]
-    // 2) bundle export: { entries: [...], notebooks: [...], activeNotebookId: "..." }
-    if (Array.isArray(payload)) {
-      return { entries: payload, notebooks: null, activeNotebookId: null };
-    }
-    if (payload && typeof payload === "object") {
-      const maybeEntries = payload.entries;
-      const maybeNotebooks = payload.notebooks;
-      const maybeActive = payload.activeNotebookId;
-      return {
-        entries: Array.isArray(maybeEntries) ? maybeEntries : [],
-        notebooks: Array.isArray(maybeNotebooks) ? maybeNotebooks : null,
-        activeNotebookId: typeof maybeActive === "string" ? maybeActive : null
-      };
-    }
-    return { entries: [], notebooks: null, activeNotebookId: null };
-  }
-
-  function buildNotebooksFromEntries(importedEntries) {
-    // If the import doesn't include notebooks, we still need a notebook list
-    // so the UI stays coherent.
-    const ids = new Set();
-    (Array.isArray(importedEntries) ? importedEntries : []).forEach(e => {
-      const nbId = (e && e.notebookId) ? e.notebookId : "default";
-      ids.add(nbId || "default");
-    });
-
-    const list = [];
-    // Always ensure default exists.
-    if (!ids.has("default")) ids.add("default");
-
-    ids.forEach(id => {
-      // Preserve existing notebook name when IDs match (nice when re-importing partial dumps)
-      const existing = notebooks.find(n => n.id === id);
-      list.push(
-        ensureNotebookShape({
-          id,
-          name: existing ? existing.name : (id === "default" ? "Journal" : "Imported Journal")
-        })
-      );
-    });
-
-    // Keep default first (calm + predictable)
-    list.sort((a, b) => (a.id === "default" ? -1 : b.id === "default" ? 1 : (a.name || "").localeCompare(b.name || "")));
-    return list;
-  }
-
-  async function applyImportedData(importedEntriesRaw, importedNotebooksRaw, importedActiveId) {
-    // Replace in-memory state
-    entries = (Array.isArray(importedEntriesRaw) ? importedEntriesRaw : []).map(migrateEntry);
-
-    if (Array.isArray(importedNotebooksRaw)) {
-      notebooks = migrateNotebooks(importedNotebooksRaw);
-    } else {
-      notebooks = migrateNotebooks(buildNotebooksFromEntries(entries));
-    }
-
-    // Active notebook selection
-    const desiredActive = importedActiveId || (notebooks[0] ? notebooks[0].id : "default");
-    setActiveNotebookId(desiredActive);
-
-    // Persist
-    journalService.saveAll(entries);
-    notebookService.saveAll(notebooks);
-    notebookService.saveActiveId(activeNotebookId);
-
-    // Ensure images are in IndexedDB (imports may contain legacy imageData)
-    await migrateImagesToIndexedDBIfNeeded(entries);
-
-    // Reset UI state (avoid weird stacking after import)
-    currentDayIso = null;
-    currentDayEntries = [];
-    renderDayResults();
-    hideEl(pageSearch);
-    showJournalView();
-    searchOpenedFromEntryId = null;
-    searchPickedEntryId = null;
-    exitNotebookDeleteMode();
-
-    // Render notebooks + open the most recent entry in the active notebook
-    renderNotebookList();
-
-    const sorted = getChronologicallySortedEntries();
-    if (sorted.length === 0) {
-      showEmptyNotebookState();
-      updateStatus("Import complete (no entries)");
-      return;
-    }
-
-    const mostRecent = sorted[sorted.length - 1];
-    currentEntryId = mostRecent.id;
-    calendarSelectedIso = mostRecent.date || null;
-
-    renderEditor(mostRecent);
-    setCurrentEntrySnapshotFromEntry(mostRecent);
-    setEditorDirty(false);
-    clearNonTextDirty();
-
-    updateNavButtons();
-    renderCalendar();
-
-    updateStatus("Import complete");
-  }
-
-  async function handleImportFile(file) {
-    if (!file) return;
-
-    // Basic guard: only json-ish files
-    const name = (file.name || "").toLowerCase();
-    if (file.type && file.type !== "application/json" && !name.endsWith(".json")) {
-      updateStatus("Please choose a .json file");
-      return;
-    }
-
-    let text = "";
-    try {
-      text = await file.text();
-    } catch (err) {
-      console.error("Failed to read import file", err);
-      updateStatus("Failed to read file");
-      return;
-    }
-
-    let payload;
-    try {
-      payload = JSON.parse(text);
-    } catch (err) {
-      updateStatus("Invalid JSON");
-      return;
-    }
-
-    const parsed = parseImportedPayload(payload);
-
-    if (!parsed.entries || parsed.entries.length === 0) {
-      updateStatus("No entries found in that file");
-      return;
-    }
-
-    openGenericConfirm("Import JSON and replace current data?", async () => {
-      await applyImportedData(parsed.entries, parsed.notebooks, parsed.activeNotebookId);
-    });
-  }
   // ============================================
   // Init
   // ============================================
@@ -3701,27 +3268,6 @@ if (!limitedResults || limitedResults.length === 0) {
 
     // Initialize status bar empty.
     updateStatus("");
-
-    // Global Escape handler (single place for predictable "close" behavior)
-    // Priority: top-most modal -> notebook delete mode -> search results
-    document.addEventListener("keydown", (e) => {
-      if (e.key !== "Escape") return;
-
-      // 1) Close the top-most modal/dialog if any are open.
-      if (ModalManager.closeTop()) return;
-
-      // 2) Exit notebook delete mode (tapping Esc should always feel safe)
-      if (isNotebookDeleteMode) {
-        exitNotebookDeleteMode();
-        return;
-      }
-
-      // 3) Close search results (returns to entry per existing search-close rules)
-      if (isSearchVisible()) {
-        closeSearchResults();
-        return;
-      }
-    });
 
     if (entries.length === 0) {
       newEntry();
@@ -3771,20 +3317,6 @@ if (!limitedResults || limitedResults.length === 0) {
 
     if (exportBtn) {
       exportBtn.addEventListener("click", exportEntries);
-    }
-
-    if (importBtn && importFileInput) {
-      importBtn.addEventListener("click", () => {
-        // Reset so selecting the same file twice still triggers change
-        importFileInput.value = "";
-        importFileInput.click();
-      });
-
-      importFileInput.addEventListener("change", () => {
-        const file = importFileInput.files && importFileInput.files[0] ? importFileInput.files[0] : null;
-        if (!file) return;
-        handleImportFile(file);
-      });
     }
 
 

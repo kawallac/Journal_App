@@ -844,16 +844,12 @@ function closeSearchResults() {
         <div id="entry-tag-list" class="entry-tag-list"></div>
       </div>
 
-      
       <div class="image-section">
-        <div class="image-upload-row image-upload-row-stacked">
-          <div class="field-label">Journal Page Photo</div>
-          <button id="photo-add-btn" type="button" class="btn-secondary">Add Photo</button>
-          <div class="field-hint">Choose from photos or use your camera</div>
-
-          <!-- Hidden inputs (triggered from the Add Photo menu) -->
-          <input id="entry-photo" type="file" accept="image/*" class="hidden" />
-          <input id="entry-photo-camera" type="file" accept="image/*" capture="environment" class="hidden" />
+        <div class="image-upload-row">
+          <div>
+            <div class="field-label">Journal Page Photo</div>
+            <input id="entry-photo" type="file" accept="image/*" />
+          </div>
         </div>
 
         <div id="image-preview" class="image-preview">
@@ -864,7 +860,6 @@ function closeSearchResults() {
           }
         </div>
       </div>
-
 
       <div>
         <div class="field-label">Notes</div>
@@ -1006,9 +1001,7 @@ function closeSearchResults() {
     const dateInput = document.getElementById("entry-date");
     const titleInput = document.getElementById("entry-title");
     const bodyInput = document.getElementById("entry-body");
-    const photoAddBtn = document.getElementById("photo-add-btn");
     const photoInput = document.getElementById("entry-photo");
-    const cameraPhotoInput = document.getElementById("entry-photo-camera");
     const imagePreview = document.getElementById("image-preview");
 
     if (dateInput) {
@@ -1038,13 +1031,6 @@ function closeSearchResults() {
       });
     }
 
-
-    if (photoAddBtn) {
-      photoAddBtn.addEventListener("click", (evt) => {
-        evt.preventDefault();
-        openPhotoSourceDialog();
-      });
-    }
 
     
     // Photo upload + drag/drop
@@ -1102,27 +1088,14 @@ function closeSearchResults() {
         reader.readAsDataURL(file);
       }
 
-      // Standard file input (choose from device)
-      if (photoInput) {
-        photoInput.addEventListener("change", () => {
-          if (photoInput.files && photoInput.files[0]) {
-            handlePhotoFile(photoInput.files[0]);
-            // Reset so selecting the same file again still triggers change
-            photoInput.value = "";
-          }
-        });
-      }
-
-      // Camera input (take a photo)
-      if (cameraPhotoInput) {
-        cameraPhotoInput.addEventListener("change", () => {
-          if (cameraPhotoInput.files && cameraPhotoInput.files[0]) {
-            handlePhotoFile(cameraPhotoInput.files[0]);
-            // Reset so taking the same photo again still triggers change
-            cameraPhotoInput.value = "";
-          }
-        });
-      }
+      // Standard file input
+      photoInput.addEventListener("change", () => {
+        if (photoInput.files && photoInput.files[0]) {
+          handlePhotoFile(photoInput.files[0]);
+          // Reset the input so selecting the same file again still triggers change
+          photoInput.value = "";
+        }
+      });
 
       // Drag & drop on the preview area
       imagePreview.addEventListener("dragenter", (evt) => {
@@ -1810,87 +1783,6 @@ pill.addEventListener("mousedown", (evt) => {
   ModalManager.register("photoRemoveConfirm", isPhotoRemoveConfirmOpen, closePhotoRemoveConfirm, 95);
 
 
-  // ============================================
-  // Photo Source Menu (secondary menu)
-  // - Keeps the editor clean (no dual inputs)
-  // - Offers: Choose from photos OR Use camera
-  // ============================================
-
-  let photoSourceBackdrop = null;
-
-  function ensurePhotoSourceDialog() {
-    if (photoSourceBackdrop) return;
-
-    photoSourceBackdrop = document.createElement("div");
-    photoSourceBackdrop.className = "confirm-backdrop hidden";
-    photoSourceBackdrop.id = "photo-source-backdrop";
-
-    const dialog = document.createElement("div");
-    dialog.className = "photo-source-dialog";
-
-    dialog.innerHTML = `
-      <button type="button" class="confirm-close-x" aria-label="Close dialog">×</button>
-      <h3 class="photo-source-title">Add Photo</h3>
-      <div class="photo-source-actions">
-        <button type="button" class="btn-primary" id="photo-source-choose">Choose from Photos</button>
-        <button type="button" class="btn-secondary" id="photo-source-camera">Use Camera</button>
-      </div>
-    `;
-
-    photoSourceBackdrop.appendChild(dialog);
-    document.body.appendChild(photoSourceBackdrop);
-
-    // Close behaviors
-    const closeX = dialog.querySelector(".confirm-close-x");
-    if (closeX) closeX.addEventListener("click", closePhotoSourceDialog);
-
-    photoSourceBackdrop.addEventListener("click", (e) => {
-      if (e.target === photoSourceBackdrop) closePhotoSourceDialog();
-    });
-
-    // Action buttons (inputs are rendered per-entry inside the editor)
-    const chooseBtn = dialog.querySelector("#photo-source-choose");
-    const cameraBtn = dialog.querySelector("#photo-source-camera");
-
-    if (chooseBtn) {
-      chooseBtn.addEventListener("click", () => {
-        closePhotoSourceDialog();
-        const input = document.getElementById("entry-photo");
-        if (input) {
-          input.value = ""; // allow selecting same file twice
-          input.click();
-        }
-      });
-    }
-
-    if (cameraBtn) {
-      cameraBtn.addEventListener("click", () => {
-        closePhotoSourceDialog();
-        const input = document.getElementById("entry-photo-camera");
-        if (input) {
-          input.value = ""; // allow taking same photo twice
-          input.click();
-        }
-      });
-    }
-  }
-
-  function isPhotoSourceDialogOpen() {
-    return !!photoSourceBackdrop && !photoSourceBackdrop.classList.contains("hidden");
-  }
-
-  function openPhotoSourceDialog() {
-    ensurePhotoSourceDialog();
-    showEl(photoSourceBackdrop);
-  }
-
-  function closePhotoSourceDialog() {
-    if (!photoSourceBackdrop) return;
-    hideEl(photoSourceBackdrop);
-  }
-
-  // Escape should close this menu before delete-confirm, but after tag dialog.
-  ModalManager.register("photoSourceMenu", isPhotoSourceDialogOpen, closePhotoSourceDialog, 94);
 
 
 

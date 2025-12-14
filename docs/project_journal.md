@@ -39,8 +39,68 @@ v0.4.4.1 (25.12.11)
 	-moved new entry and new tag buttons to the page entry form
 	-removed status box in the page header
 	-changed style of buttons on top of the entry page
+v0.4.5 
+	-refined entry deletion action
+		-dialog window appears to confirm deletion
+v0.4.5.1
+	-first MED-lite revamp
+v0.4.5.2
+	-Med-lite on calendar
+v0.4.6
+	-added drag drop photo
+	-removed "Tip:" that sat above the photo box
+	-added ability to delete photo
+v0.4.10
+	-removed back to journal, replaced with an 'x' in search results card
+v0.4.20
+	-improving functionality of save
+		-no longer resets chronological order
+		-refreshes day results card
+		-if date is changed, the new day results card is shown
+		-save is deactivate when nothing is changed, active when something did change
+		-improved UX for the tag dialog box
+v0.4.21
+	-ran UX theme pass
+v0.4.22
+	-further polishing app theme
+		-Warm/Handcrafted theme tokens are the current baseline
+v0.4.23
+	-refined app version broadcast (under the Journal App, left side of the header)
+		-variable APP_VERSION in app.js controls
+	-refined status message broadcast (right side of header)
 
+v0.4.24
+	-added photo zoom functionality
 
+v0.4.25
+	-removed red x button in delete photo/entry dialog boxs
+	-centered the x in the photo delete button
+
+v0.4.26
+	-add tag management through search
+
+v0.4.27
+	-added multiple journals
+
+v0.4.28
+	-search is discrete to a journal except for special syntax
+		-scope:all or all:
+
+v0.4.29
+	-stablized code
+
+v1.0 Beta, Stable
+	-add import json
+	-further stabilized code base
+
+v1.1
+	-forces camera to be used on the phone
+
+v1.2
+	-new add photo button that has secondary menu for file/camera
+
+working folder
+	
 
 # Notes
 

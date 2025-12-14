@@ -24,15 +24,9 @@
 
 document.addEventListener("DOMContentLoaded", () => {
   const STORAGE_KEY = "journalEntries_v1";
-  const NOTEBOOKS_KEY = "journalNotebooks_v1";
-  const ACTIVE_NOTEBOOK_KEY = "journalActiveNotebookId_v1";
-  const APP_VERSION = "v0.4.27";
+  const APP_VERSION = "v0.4.26";
 
-  
-  // Performance guardrails (keeps UI snappy with large datasets)
-  const MAX_SEARCH_RESULTS = 200; // entries shown in Search Results
-  const MAX_TAG_RESULTS = 200;    // tags shown in Tag Browse
-// Single source of truth: write APP_VERSION into the UI on load
+  // Single source of truth: write APP_VERSION into the UI on load
   function applyAppVersionToUI() {
     const vEl = document.getElementById("app-version");
     if (vEl) vEl.textContent = APP_VERSION;
@@ -166,42 +160,6 @@ function hideEl(el) {
   el.classList.add("hidden");
 }
 
-
-// ============================================
-// Modal Manager (single Escape handler)
-// - Prevents multiple document keydown listeners for each dialog/modal
-// - Centralizes "what closes first" logic for predictable UX
-// ============================================
-
-const ModalManager = (() => {
-  const stack = []; // { id, isOpen, close }
-
-  function register(id, isOpenFn, closeFn, priority = 0) {
-    // de-dupe by id
-    const existingIdx = stack.findIndex(x => x.id === id);
-    const rec = { id, isOpen: isOpenFn, close: closeFn, priority: Number(priority) || 0 };
-    if (existingIdx >= 0) stack.splice(existingIdx, 1);
-    stack.push(rec);
-    // Highest priority first
-    stack.sort((a, b) => (b.priority - a.priority));
-  }
-
-  function closeTop() {
-    for (const rec of stack) {
-      try {
-        if (rec.isOpen && rec.isOpen()) {
-          rec.close && rec.close();
-          return true;
-        }
-      } catch (err) {
-        // Ignore and continue to next modal
-      }
-    }
-    return false;
-  }
-
-  return { register, closeTop };
-})();
 // ============================================
   // Storage Adapter + Migration
   // ============================================
@@ -273,102 +231,7 @@ const ModalManager = (() => {
     }
   };
 
-  
-
   // ============================================
-  // Notebooks (Journals): Storage + Migration
-  // ============================================
-
-  const NotebookAdapter = {
-    load() {
-      try {
-        const raw = localStorage.getItem(NOTEBOOKS_KEY);
-        if (!raw) return [];
-        const parsed = JSON.parse(raw);
-        return Array.isArray(parsed) ? parsed : [];
-      } catch (err) {
-        console.error("Failed to load notebooks:", err);
-        return [];
-      }
-    },
-    save(allNotebooks) {
-      try {
-        localStorage.setItem(NOTEBOOKS_KEY, JSON.stringify(allNotebooks));
-      } catch (err) {
-        console.error("Failed to save notebooks:", err);
-      }
-    },
-    loadActiveId() {
-      try {
-        return localStorage.getItem(ACTIVE_NOTEBOOK_KEY) || null;
-      } catch (err) {
-        return null;
-      }
-    },
-    saveActiveId(id) {
-      try {
-        localStorage.setItem(ACTIVE_NOTEBOOK_KEY, id || "");
-      } catch (err) {
-        // ignore
-      }
-    }
-  };
-
-  function ensureNotebookShape(n) {
-    const nowIso = new Date().toISOString();
-    return {
-      id: n.id || generateId(),
-      name: (n.name || "").toString().trim() || "Journal",
-      createdAt: n.createdAt || nowIso,
-      updatedAt: n.updatedAt || nowIso
-    };
-  }
-
-  function migrateNotebooks(list) {
-    const raw = Array.isArray(list) ? list : [];
-    const migrated = raw.map(ensureNotebookShape);
-
-    // Ensure we always have at least one notebook.
-    if (migrated.length === 0) {
-      migrated.push({
-        id: "default",
-        name: "Journal",
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      });
-    }
-
-    // Ensure there's a "default" notebook for older entries that migrated with notebookId="default"
-    const hasDefault = migrated.some(n => n.id === "default");
-    if (!hasDefault) {
-      migrated.unshift({
-        id: "default",
-        name: "Journal",
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      });
-    }
-
-    return migrated;
-  }
-
-  const notebookService = {
-    loadAll() {
-      return migrateNotebooks(NotebookAdapter.load());
-    },
-    saveAll(allNotebooks) {
-      NotebookAdapter.save(allNotebooks);
-    },
-    loadActiveId() {
-      return NotebookAdapter.loadActiveId();
-    },
-    saveActiveId(id) {
-      NotebookAdapter.saveActiveId(id);
-    }
-  };
-
-
-// ============================================
   // IndexedDB Image Store for images
   // ============================================
 
@@ -494,8 +357,6 @@ const ModalManager = (() => {
   const prevBtn = document.getElementById("prev-btn");
   const nextBtn = document.getElementById("next-btn");
   const exportBtn = document.getElementById("export-btn");
-  const importBtn = document.getElementById("import-btn");
-  const importFileInput = document.getElementById("import-file-input");
 
   const editorInnerEl = document.getElementById("editor-inner");
   const pageJournal = document.getElementById("page-journal");
@@ -515,25 +376,11 @@ const ModalManager = (() => {
   const calendarPrevBtn = document.getElementById("calendar-prev-btn");
   const calendarNextBtn = document.getElementById("calendar-next-btn");
 
-  
-  // Journals (Notebooks)
-  const journalsHeader = document.getElementById("journals-header");
-  const journalsToggleBtn = document.getElementById("journals-toggle-btn");
-  const journalsPanel = document.getElementById("journals-panel");
-  const journalAddBtn = document.getElementById("journal-add-btn");
-  const journalDeleteBtn = document.getElementById("journal-delete-btn");
-  const journalsListEl = document.getElementById("journals-list");
-
-
-// ============================================
+  // ============================================
   // In-memory State
   // ============================================
 
   let entries = [];
-  let notebooks = [];
-  let activeNotebookId = "default";
-  let isNotebookDeleteMode = false;
-  let isNotebookPanelCollapsed = false;
   let currentEntryId = null;
   let currentTags = [];
 
@@ -583,27 +430,6 @@ const ModalManager = (() => {
 
   // ============================================
   // Core Helpers
-
-
-  function getActiveNotebook() {
-    return notebooks.find(n => n.id === activeNotebookId) || null;
-  }
-
-  function setActiveNotebookId(nextId) {
-    const exists = notebooks.some(n => n.id === nextId);
-    activeNotebookId = exists ? nextId : (notebooks[0] ? notebooks[0].id : "default");
-    notebookService.saveActiveId(activeNotebookId);
-  }
-
-  function getEntriesForActiveNotebook() {
-    return entries.filter(e => (e.notebookId || "default") === activeNotebookId);
-  }
-
-  function countEntriesForNotebook(notebookId) {
-    return entries.filter(e => (e.notebookId || "default") === notebookId).length;
-  }
-
-
   // ============================================
 
   function getChronologicallySortedEntries() {
@@ -612,7 +438,7 @@ const ModalManager = (() => {
     // 2) createdAt (so editing/saving doesn't reshuffle within a day)
     // 3) updatedAt (fallback)
     // 4) id (final deterministic tie-breaker)
-    const copy = [...getEntriesForActiveNotebook()];
+    const copy = [...entries];
     copy.sort((a, b) => {
       const aDate = a.date || "";
       const bDate = b.date || "";
@@ -844,16 +670,12 @@ function closeSearchResults() {
         <div id="entry-tag-list" class="entry-tag-list"></div>
       </div>
 
-      
       <div class="image-section">
-        <div class="image-upload-row image-upload-row-stacked">
-          <div class="field-label">Journal Page Photo</div>
-          <button id="photo-add-btn" type="button" class="btn-secondary">Add Photo</button>
-          <div class="field-hint">Choose from photos or use your camera</div>
-
-          <!-- Hidden inputs (triggered from the Add Photo menu) -->
-          <input id="entry-photo" type="file" accept="image/*" class="hidden" />
-          <input id="entry-photo-camera" type="file" accept="image/*" capture="environment" class="hidden" />
+        <div class="image-upload-row">
+          <div>
+            <div class="field-label">Journal Page Photo</div>
+            <input id="entry-photo" type="file" accept="image/*" />
+          </div>
         </div>
 
         <div id="image-preview" class="image-preview">
@@ -864,7 +686,6 @@ function closeSearchResults() {
           }
         </div>
       </div>
-
 
       <div>
         <div class="field-label">Notes</div>
@@ -1006,9 +827,7 @@ function closeSearchResults() {
     const dateInput = document.getElementById("entry-date");
     const titleInput = document.getElementById("entry-title");
     const bodyInput = document.getElementById("entry-body");
-    const photoAddBtn = document.getElementById("photo-add-btn");
     const photoInput = document.getElementById("entry-photo");
-    const cameraPhotoInput = document.getElementById("entry-photo-camera");
     const imagePreview = document.getElementById("image-preview");
 
     if (dateInput) {
@@ -1038,13 +857,6 @@ function closeSearchResults() {
       });
     }
 
-
-    if (photoAddBtn) {
-      photoAddBtn.addEventListener("click", (evt) => {
-        evt.preventDefault();
-        openPhotoSourceDialog();
-      });
-    }
 
     
     // Photo upload + drag/drop
@@ -1102,27 +914,14 @@ function closeSearchResults() {
         reader.readAsDataURL(file);
       }
 
-      // Standard file input (choose from device)
-      if (photoInput) {
-        photoInput.addEventListener("change", () => {
-          if (photoInput.files && photoInput.files[0]) {
-            handlePhotoFile(photoInput.files[0]);
-            // Reset so selecting the same file again still triggers change
-            photoInput.value = "";
-          }
-        });
-      }
-
-      // Camera input (take a photo)
-      if (cameraPhotoInput) {
-        cameraPhotoInput.addEventListener("change", () => {
-          if (cameraPhotoInput.files && cameraPhotoInput.files[0]) {
-            handlePhotoFile(cameraPhotoInput.files[0]);
-            // Reset so taking the same photo again still triggers change
-            cameraPhotoInput.value = "";
-          }
-        });
-      }
+      // Standard file input
+      photoInput.addEventListener("change", () => {
+        if (photoInput.files && photoInput.files[0]) {
+          handlePhotoFile(photoInput.files[0]);
+          // Reset the input so selecting the same file again still triggers change
+          photoInput.value = "";
+        }
+      });
 
       // Drag & drop on the preview area
       imagePreview.addEventListener("dragenter", (evt) => {
@@ -1473,7 +1272,14 @@ pill.addEventListener("mousedown", (evt) => {
         hideTagDialog();
       }
     });
-}
+
+    // Escape closes (cancel)
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && tagDialogBackdrop && !tagDialogBackdrop.classList.contains("hidden")) {
+        hideTagDialog();
+      }
+    });
+  }
 
   function openTagDialog(tagId, mode = "edit") {
     tagDialogMode = mode;
@@ -1530,9 +1336,6 @@ pill.addEventListener("mousedown", (evt) => {
     tagDialogActiveTagId = null;
     tagDialogMode = "edit";
   }
-
-  ModalManager.register("tagDialog", () => !!tagDialogBackdrop && !tagDialogBackdrop.classList.contains("hidden"), hideTagDialog, 80);
-
 
   function applyTagDialogChanges() {
     const entry = getCurrentEntryObject();
@@ -1679,7 +1482,14 @@ pill.addEventListener("mousedown", (evt) => {
       closeDeleteConfirm();
       deleteCurrentEntryShowPrev();
     });
-}
+
+    // Escape closes (cancel)
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && isDeleteConfirmOpen()) {
+        closeDeleteConfirm();
+      }
+    });
+  }
 
   function isDeleteConfirmOpen() {
     return !!deleteConfirmBackdrop && !deleteConfirmBackdrop.classList.contains("hidden");
@@ -1695,9 +1505,6 @@ pill.addEventListener("mousedown", (evt) => {
     if (!deleteConfirmBackdrop) return;
     deleteConfirmBackdrop.classList.add("hidden");
   }
-
-  ModalManager.register("deleteConfirm", isDeleteConfirmOpen, closeDeleteConfirm, 92);
-
 
   /**
    * Delete the current entry and then show the PREVIOUS entry (chronologically).
@@ -1786,7 +1593,14 @@ pill.addEventListener("mousedown", (evt) => {
       closePhotoRemoveConfirm();
       await removePhotoFromCurrentEntry();
     });
-}
+
+    // Escape closes (cancel)
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && isPhotoRemoveConfirmOpen()) {
+        closePhotoRemoveConfirm();
+      }
+    });
+  }
 
   function isPhotoRemoveConfirmOpen() {
     return (
@@ -1807,90 +1621,6 @@ pill.addEventListener("mousedown", (evt) => {
     photoRemoveConfirmBackdrop.classList.add("hidden");
   }
 
-  ModalManager.register("photoRemoveConfirm", isPhotoRemoveConfirmOpen, closePhotoRemoveConfirm, 95);
-
-
-  // ============================================
-  // Photo Source Menu (secondary menu)
-  // - Keeps the editor clean (no dual inputs)
-  // - Offers: Choose from photos OR Use camera
-  // ============================================
-
-  let photoSourceBackdrop = null;
-
-  function ensurePhotoSourceDialog() {
-    if (photoSourceBackdrop) return;
-
-    photoSourceBackdrop = document.createElement("div");
-    photoSourceBackdrop.className = "confirm-backdrop hidden";
-    photoSourceBackdrop.id = "photo-source-backdrop";
-
-    const dialog = document.createElement("div");
-    dialog.className = "photo-source-dialog";
-
-    dialog.innerHTML = `
-      <button type="button" class="confirm-close-x" aria-label="Close dialog">×</button>
-      <h3 class="photo-source-title">Add Photo</h3>
-      <div class="photo-source-actions">
-        <button type="button" class="btn-primary" id="photo-source-choose">Choose from Photos</button>
-        <button type="button" class="btn-secondary" id="photo-source-camera">Use Camera</button>
-      </div>
-    `;
-
-    photoSourceBackdrop.appendChild(dialog);
-    document.body.appendChild(photoSourceBackdrop);
-
-    // Close behaviors
-    const closeX = dialog.querySelector(".confirm-close-x");
-    if (closeX) closeX.addEventListener("click", closePhotoSourceDialog);
-
-    photoSourceBackdrop.addEventListener("click", (e) => {
-      if (e.target === photoSourceBackdrop) closePhotoSourceDialog();
-    });
-
-    // Action buttons (inputs are rendered per-entry inside the editor)
-    const chooseBtn = dialog.querySelector("#photo-source-choose");
-    const cameraBtn = dialog.querySelector("#photo-source-camera");
-
-    if (chooseBtn) {
-      chooseBtn.addEventListener("click", () => {
-        closePhotoSourceDialog();
-        const input = document.getElementById("entry-photo");
-        if (input) {
-          input.value = ""; // allow selecting same file twice
-          input.click();
-        }
-      });
-    }
-
-    if (cameraBtn) {
-      cameraBtn.addEventListener("click", () => {
-        closePhotoSourceDialog();
-        const input = document.getElementById("entry-photo-camera");
-        if (input) {
-          input.value = ""; // allow taking same photo twice
-          input.click();
-        }
-      });
-    }
-  }
-
-  function isPhotoSourceDialogOpen() {
-    return !!photoSourceBackdrop && !photoSourceBackdrop.classList.contains("hidden");
-  }
-
-  function openPhotoSourceDialog() {
-    ensurePhotoSourceDialog();
-    showEl(photoSourceBackdrop);
-  }
-
-  function closePhotoSourceDialog() {
-    if (!photoSourceBackdrop) return;
-    hideEl(photoSourceBackdrop);
-  }
-
-  // Escape should close this menu before delete-confirm, but after tag dialog.
-  ModalManager.register("photoSourceMenu", isPhotoSourceDialogOpen, closePhotoSourceDialog, 94);
 
 
 
@@ -1979,7 +1709,16 @@ pill.addEventListener("mousedown", (evt) => {
     photoZoomBackdrop.addEventListener("click", (evt) => {
       if (evt.target === photoZoomBackdrop) closePhotoZoom();
     });
-// Wheel zoom + drag pan (simple, deliberate)
+
+    // Escape closes
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && isPhotoZoomOpen()) {
+        closePhotoZoom();
+      }
+    });
+
+    
+    // Wheel zoom + drag pan (simple, deliberate)
     if (body) {
       // Zoom with wheel (no modifier keys)
       body.addEventListener(
@@ -2117,10 +1856,6 @@ pill.addEventListener("mousedown", (evt) => {
     document.body.classList.remove("no-scroll");
   }
 
-  // Register with modal manager (Escape closes top-most modal)
-  ModalManager.register("photoZoom", isPhotoZoomOpen, closePhotoZoom, 100);
-
-
   function ensurePhotoZoomWiring() {
     // Intentionally disabled.
     // Zoom is only triggered via the magnify (🔍) button.
@@ -2131,7 +1866,6 @@ pill.addEventListener("mousedown", (evt) => {
 
   function newEntry() {
     const fresh = ensureEntryShape({
-      notebookId: activeNotebookId,
       date: formatDateForInput(new Date()),
       title: "",
       body: "",
@@ -2308,529 +2042,7 @@ function deleteCurrentEntry() {
     goToEntryAtIndex(idx); // internal logic will suppress day-results if search is visible
   }
 
-  // Open an entry from search when results may span journals.
-  // If needed, this switches the active journal first (so the editor + calendar + nav stay consistent).
-  function openEntryFromSearchGlobal(entryId) {
-    const entry = entries.find(e => e.id === entryId) || null;
-    if (!entry) return;
-
-    const nbId = (entry.notebookId || "default");
-    if (nbId !== activeNotebookId) {
-      setActiveNotebookId(nbId);
-      renderNotebookList();
-      // Calendar + nav depend on active journal
-      renderCalendar();
-      updateNavButtons();
-    }
-
-    openEntryFromSearch(entryId);
-  }
-
-
-
-  
-
   // ============================================
-  // Journals (Notebooks) UI
-  // ============================================
-
-  function setNotebookPanelCollapsed(nextCollapsed) {
-    isNotebookPanelCollapsed = !!nextCollapsed;
-    if (journalsPanel) {
-      if (isNotebookPanelCollapsed) {
-        journalsPanel.classList.add("hidden");
-      } else {
-        journalsPanel.classList.remove("hidden");
-      }
-    }
-    if (journalsToggleBtn) {
-      journalsToggleBtn.textContent = isNotebookPanelCollapsed ? "▸" : "▾";
-      journalsToggleBtn.setAttribute("aria-label", isNotebookPanelCollapsed ? "Expand journals" : "Collapse journals");
-    }
-    if (journalsHeader) {
-      journalsHeader.setAttribute("aria-expanded", isNotebookPanelCollapsed ? "false" : "true");
-    }
-  }
-
-  function exitNotebookDeleteMode() {
-    isNotebookDeleteMode = false;
-    if (journalDeleteBtn) journalDeleteBtn.classList.remove("is-active");
-    renderNotebookList();
-  }
-
-  function enterNotebookDeleteMode() {
-    isNotebookDeleteMode = true;
-    if (journalDeleteBtn) journalDeleteBtn.classList.add("is-active");
-    renderNotebookList();
-  }
-
-  function toggleNotebookDeleteMode() {
-    if (isNotebookDeleteMode) exitNotebookDeleteMode();
-    else enterNotebookDeleteMode();
-  }
-
-  function normalizeNotebookName(name) {
-    return (name || "").toString().trim().replace(/\s+/g, " ").toLowerCase();
-  }
-
-  function renderNotebookList() {
-    if (!journalsListEl) return;
-    journalsListEl.innerHTML = "";
-
-    if (!Array.isArray(notebooks) || notebooks.length === 0) return;
-
-    notebooks.forEach(nb => {
-      const isActive = nb.id === activeNotebookId;
-
-      const pill = document.createElement("div");
-      pill.className = "journal-pill" + (isActive ? " is-active" : "");
-      pill.dataset.notebookId = nb.id;
-
-      const left = document.createElement("div");
-      left.style.minWidth = "0";
-
-      const nameEl = document.createElement("div");
-      nameEl.className = "journal-pill-name";
-      nameEl.textContent = nb.name || "Journal";
-
-      // Rename (UI-level only): double-click the name to edit.
-      nameEl.addEventListener("dblclick", (evt) => {
-        evt.preventDefault();
-        evt.stopPropagation();
-        if (isNotebookDeleteMode) return;
-        requestRenameNotebookInline(nb.id);
-      });
-
-      const metaEl = document.createElement("div");
-      metaEl.className = "journal-pill-meta";
-      const nCount = countEntriesForNotebook(nb.id);
-      metaEl.textContent = `${nCount} entr${nCount === 1 ? "y" : "ies"}`;
-
-      left.appendChild(nameEl);
-      left.appendChild(metaEl);
-
-      const right = document.createElement("div");
-      right.className = "journal-pill-right";
-
-      if (isNotebookDeleteMode) {
-        const xBtn = document.createElement("button");
-        xBtn.type = "button";
-        xBtn.className = "journal-delete-x";
-        xBtn.setAttribute("aria-label", "Delete journal");
-        xBtn.textContent = "×";
-
-        xBtn.addEventListener("click", (evt) => {
-          evt.preventDefault();
-          evt.stopPropagation();
-          requestDeleteNotebook(nb.id);
-        });
-
-        right.appendChild(xBtn);
-      }
-
-      pill.appendChild(left);
-      pill.appendChild(right);
-
-      pill.addEventListener("click", () => {
-        if (isNotebookDeleteMode) return;
-        selectNotebook(nb.id);
-      });
-
-      journalsListEl.appendChild(pill);
-    });
-  }
-
-  function showEmptyNotebookState() {
-    currentEntryId = null;
-    if (editorInnerEl) {
-      editorInnerEl.innerHTML = `<div class="search-result-snippet">No entries in this journal yet. Click <strong>New Entry</strong> to start.</div>`;
-    }
-    updateNavButtons();
-    renderCalendar();
-    currentDayIso = null;
-    currentDayEntries = [];
-    renderDayResults();
-    showJournalView();
-  }
-
-  function selectNotebook(id) {
-    setActiveNotebookId(id);
-
-    // Switching journals should dismiss search results.
-    hideEl(pageSearch);
-    showJournalView();
-    searchOpenedFromEntryId = null;
-    searchPickedEntryId = null;
-
-    exitNotebookDeleteMode();
-
-    currentDayIso = null;
-    currentDayEntries = [];
-    renderDayResults();
-
-    const sorted = getChronologicallySortedEntries();
-    if (sorted.length === 0) {
-      renderNotebookList();
-      showEmptyNotebookState();
-      updateStatus("Journal selected");
-      return;
-    }
-
-    const mostRecent = sorted[sorted.length - 1];
-    currentEntryId = mostRecent.id;
-    calendarSelectedIso = mostRecent.date || null;
-    renderEditor(mostRecent);
-    setCurrentEntrySnapshotFromEntry(mostRecent);
-    setEditorDirty(false);
-    clearNonTextDirty();
-
-    updateNavButtons();
-    renderCalendar();
-    renderNotebookList();
-    updateStatus("Journal selected");
-  }
-
-  function requestAddNotebookInline() {
-    if (!journalsListEl) return;
-    exitNotebookDeleteMode();
-
-    const wrapper = document.createElement("div");
-    wrapper.className = "journal-pill";
-    wrapper.style.cursor = "default";
-
-    const input = document.createElement("input");
-    input.type = "text";
-    input.className = "journal-name-input";
-    input.placeholder = "Enter name";
-    input.value = "";
-
-    const actions = document.createElement("div");
-    actions.className = "journal-inline-actions";
-
-    const okBtn = document.createElement("button");
-    okBtn.type = "button";
-    okBtn.className = "journal-inline-btn";
-    okBtn.setAttribute("aria-label", "Save journal");
-    okBtn.textContent = "✓";
-
-    const cancelBtn = document.createElement("button");
-    cancelBtn.type = "button";
-    cancelBtn.className = "journal-inline-btn";
-    cancelBtn.setAttribute("aria-label", "Cancel");
-    cancelBtn.textContent = "×";
-
-    actions.appendChild(okBtn);
-    actions.appendChild(cancelBtn);
-
-    wrapper.appendChild(input);
-    wrapper.appendChild(actions);
-
-    journalsListEl.prepend(wrapper);
-    input.focus();
-
-    function cleanup() {
-      if (wrapper && wrapper.parentNode) wrapper.parentNode.removeChild(wrapper);
-    }
-
-    function save() {
-      const name = (input.value || "").toString().trim().replace(/\s+/g, " ");
-      const norm = normalizeNotebookName(name);
-      if (!norm) {
-        updateStatus("Journal name required");
-        input.focus();
-        return;
-      }
-
-      const exists = notebooks.some(n => normalizeNotebookName(n.name) === norm);
-      if (exists) {
-        updateStatus("That journal name already exists");
-        input.focus();
-        return;
-      }
-
-      const nowIso = new Date().toISOString();
-      const nb = ensureNotebookShape({ name, createdAt: nowIso, updatedAt: nowIso });
-
-      notebooks.unshift(nb);
-      notebookService.saveAll(notebooks);
-      setActiveNotebookId(nb.id);
-      renderNotebookList();
-      cleanup();
-      showEmptyNotebookState();
-      updateStatus("Journal added");
-    }
-
-    okBtn.addEventListener("click", (evt) => {
-      evt.preventDefault();
-      evt.stopPropagation();
-      save();
-    });
-
-    cancelBtn.addEventListener("click", (evt) => {
-      evt.preventDefault();
-      evt.stopPropagation();
-      cleanup();
-      updateStatus("Add canceled");
-    });
-
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        save();
-      }
-      if (e.key === "Escape") {
-        e.preventDefault();
-        cleanup();
-        updateStatus("Add canceled");
-      }
-    });
-
-    const onDocClick = (evt) => {
-      if (!wrapper.contains(evt.target)) {
-        cleanup();
-        document.removeEventListener("mousedown", onDocClick, true);
-      }
-    };
-    document.addEventListener("mousedown", onDocClick, true);
-  }
-
-
-  function requestRenameNotebookInline(notebookId) {
-    if (!journalsListEl) return;
-
-    const target = notebooks.find(n => n.id === notebookId);
-    if (!target) return;
-
-    exitNotebookDeleteMode();
-
-    // Re-render list first so we start from a clean UI state
-    renderNotebookList();
-
-    // Find the pill for this notebook
-    const pill = journalsListEl.querySelector(`[data-notebook-id="${notebookId}"]`);
-    if (!pill) return;
-
-    // Replace pill contents with an inline rename editor (UI-only; id stays the same)
-    pill.innerHTML = "";
-    pill.classList.add("is-renaming");
-    pill.style.cursor = "default";
-
-    const input = document.createElement("input");
-    input.type = "text";
-    input.className = "journal-name-input";
-    input.placeholder = "Enter name";
-    input.value = (target.name || "Journal").toString();
-
-    const actions = document.createElement("div");
-    actions.className = "journal-inline-actions";
-
-    const okBtn = document.createElement("button");
-    okBtn.type = "button";
-    okBtn.className = "journal-inline-btn";
-    okBtn.setAttribute("aria-label", "Save journal name");
-    okBtn.textContent = "✓";
-
-    const cancelBtn = document.createElement("button");
-    cancelBtn.type = "button";
-    cancelBtn.className = "journal-inline-btn";
-    cancelBtn.setAttribute("aria-label", "Cancel rename");
-    cancelBtn.textContent = "×";
-
-    actions.appendChild(okBtn);
-    actions.appendChild(cancelBtn);
-
-    pill.appendChild(input);
-    pill.appendChild(actions);
-
-    // Select all text for fast rename
-    input.focus();
-    input.select();
-
-    function cleanup() {
-      // Just re-render; it restores normal pill UI.
-      renderNotebookList();
-    }
-
-    function save() {
-      const name = (input.value || "").toString().trim().replace(/\s+/g, " ");
-      const norm = normalizeNotebookName(name);
-      if (!norm) {
-        updateStatus("Journal name required");
-        input.focus();
-        return;
-      }
-
-      const exists = notebooks.some(n => n.id !== notebookId && normalizeNotebookName(n.name) === norm);
-      if (exists) {
-        updateStatus("That journal name already exists");
-        input.focus();
-        return;
-      }
-
-      target.name = name;
-      target.updatedAt = new Date().toISOString();
-
-      notebookService.saveAll(notebooks);
-      renderNotebookList();
-      updateStatus("Journal renamed");
-    }
-
-    okBtn.addEventListener("click", (evt) => {
-      evt.preventDefault();
-      evt.stopPropagation();
-      save();
-    });
-
-    cancelBtn.addEventListener("click", (evt) => {
-      evt.preventDefault();
-      evt.stopPropagation();
-      cleanup();
-      updateStatus("Rename canceled");
-    });
-
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        save();
-      }
-      if (e.key === "Escape") {
-        e.preventDefault();
-        cleanup();
-        updateStatus("Rename canceled");
-      }
-    });
-
-    const onDocClick = (evt) => {
-      // Click outside cancels rename
-      if (!pill.contains(evt.target)) {
-        cleanup();
-        document.removeEventListener("mousedown", onDocClick, true);
-      }
-    };
-    document.addEventListener("mousedown", onDocClick, true);
-  }
-
-
-
-  let genericConfirmBackdrop = null;
-  let genericConfirmTitleEl = null;
-  let genericConfirmYesBtn = null;
-  let genericConfirmOnYes = null;
-
-  function ensureGenericConfirmDialog() {
-    if (genericConfirmBackdrop) return;
-
-    genericConfirmBackdrop = document.createElement("div");
-    genericConfirmBackdrop.className = "confirm-backdrop hidden";
-    genericConfirmBackdrop.id = "generic-confirm-backdrop";
-
-    const dialog = document.createElement("div");
-    dialog.className = "confirm-dialog";
-    dialog.innerHTML = `
-      <button type="button" class="confirm-close-x" aria-label="Close dialog">×</button>
-      <h3 class="confirm-title" id="generic-confirm-title">Are you sure?</h3>
-      <div class="confirm-actions">
-        <button type="button" class="confirm-circle-btn confirm-yes" id="generic-confirm-yes" aria-label="Confirm">✓</button>
-      </div>
-    `;
-
-    genericConfirmBackdrop.appendChild(dialog);
-    document.body.appendChild(genericConfirmBackdrop);
-
-    genericConfirmTitleEl = dialog.querySelector("#generic-confirm-title");
-    genericConfirmYesBtn = dialog.querySelector("#generic-confirm-yes");
-
-    const closeX = dialog.querySelector(".confirm-close-x");
-    if (closeX) closeX.addEventListener("click", closeGenericConfirm);
-
-    genericConfirmBackdrop.addEventListener("click", (e) => {
-      if (e.target === genericConfirmBackdrop) closeGenericConfirm();
-    });
-if (genericConfirmYesBtn) {
-      genericConfirmYesBtn.addEventListener("click", async () => {
-        closeGenericConfirm();
-        if (typeof genericConfirmOnYes === "function") {
-          await genericConfirmOnYes();
-        }
-        genericConfirmOnYes = null;
-      });
-    }
-  }
-
-  function openGenericConfirm(title, onYes) {
-    ensureGenericConfirmDialog();
-    if (genericConfirmTitleEl) genericConfirmTitleEl.textContent = title || "Are you sure?";
-    genericConfirmOnYes = onYes;
-    showEl(genericConfirmBackdrop);
-  }
-
-  function closeGenericConfirm() {
-    if (!genericConfirmBackdrop) return;
-    hideEl(genericConfirmBackdrop);
-    genericConfirmOnYes = null;
-  }
-
-  ModalManager.register("genericConfirm", () => !!genericConfirmBackdrop && !genericConfirmBackdrop.classList.contains("hidden"), closeGenericConfirm, 90);
-
-
-  function requestDeleteNotebook(notebookId) {
-    // Allow deleting the last remaining journal.
-    // If the user deletes the final journal, we immediately create a fresh default journal
-    // so the app always has a valid active journal to operate on.
-
-    const target = notebooks.find(n => n.id === notebookId);
-    if (!target) return;
-
-    const entryCount = countEntriesForNotebook(notebookId);
-
-    const performDelete = async () => {
-      const keep = entries.filter(e => (e.notebookId || "default") !== notebookId);
-      entries = keep;
-      journalService.saveAll(entries);
-
-      notebooks = notebooks.filter(n => n.id !== notebookId);
-
-      // If the user deleted the last journal, recreate a clean default journal
-      // so the app never ends up in a "no active journal" state.
-      if (notebooks.length === 0) {
-        notebooks = migrateNotebooks([]); // produces default
-      }
-
-      notebookService.saveAll(notebooks);
-
-      if (activeNotebookId === notebookId) {
-        const fallback = notebooks[0] ? notebooks[0].id : "default";
-        setActiveNotebookId(fallback);
-      }
-
-      renderNotebookList();
-      renderCalendar();
-
-      const sorted = getChronologicallySortedEntries();
-      if (sorted.length === 0) {
-        showEmptyNotebookState();
-      } else {
-        const mostRecent = sorted[sorted.length - 1];
-        currentEntryId = mostRecent.id;
-        calendarSelectedIso = mostRecent.date || null;
-        renderEditor(mostRecent);
-        updateNavButtons();
-        renderCalendar();
-      }
-
-      exitNotebookDeleteMode();
-      updateStatus("Journal deleted");
-    };
-
-    if (entryCount > 0) {
-      openGenericConfirm("Delete journal and its entries?", performDelete);
-    } else {
-      performDelete();
-    }
-  }
-
-
-// ============================================
   // Search
   // ============================================
 
@@ -2838,10 +2050,6 @@ if (genericConfirmYesBtn) {
 // Tag search/browse helpers
 // - "tag:" / "tags:" / "#" are aliases
 // - normalized grouping (case-insensitive, trimmed, collapse whitespace)
-// - supports scoped search:
-//   - default: active journal
-//   - scope:all / all: : all journals
-//   - journal:<name> : a specific journal (by name, case-insensitive)
 function normalizeTagText(raw) {
   return (raw || "")
     .toString()
@@ -2880,86 +2088,12 @@ function parseTagQuery(q) {
   return { mode: "entries" };
 }
 
-function getNotebookNameById(id) {
-  const nb = notebooks.find(n => n.id === id);
-  return nb ? (nb.name || "Journal") : "Journal";
-}
-
-function getNotebookIdByName(name) {
-  const norm = normalizeNotebookName(name || "");
-  if (!norm) return null;
-  const match = notebooks.find(n => normalizeNotebookName(n.name) === norm);
-  return match ? match.id : null;
-}
-
-function parseSearchScope(rawQuery) {
-  const raw = (rawQuery || "").trim();
-  if (!raw) return { scope: "active", notebookId: null, cleanedQuery: "" };
-
-  let q = raw;
-
-  // 1) journal:<name> (supports quoted names)
-  let notebookName = null;
-  const journalRe = /\bjournal:(?:"([^"]+)"|'([^']+)'|([^\s]+))/i;
-  const jm = q.match(journalRe);
-  if (jm) {
-    notebookName = (jm[1] || jm[2] || jm[3] || "").toString().trim();
-    q = q.replace(journalRe, " ").trim();
-  }
-
-  // 2) scope:all token (anywhere)
-  const scopeAllRe = /\bscope:all\b/i;
-  const hasScopeAll = scopeAllRe.test(q);
-  if (hasScopeAll) {
-    q = q.replace(scopeAllRe, " ").trim();
-  }
-
-  // 3) all: prefix (start of query)
-  const lower = q.toLowerCase();
-  let hasAllPrefix = false;
-  if (lower.startsWith("all:")) {
-    hasAllPrefix = true;
-    q = q.slice(4).trim();
-  }
-
-  // journal: overrides scope (more specific)
-  if (notebookName) {
-    const notebookId = getNotebookIdByName(notebookName);
-    return {
-      scope: "journal",
-      notebookId: notebookId,
-      notebookName: notebookName,
-      cleanedQuery: q
-    };
-  }
-
-  if (hasScopeAll || hasAllPrefix) {
-    return { scope: "all", notebookId: null, cleanedQuery: q };
-  }
-
-  return { scope: "active", notebookId: null, cleanedQuery: q };
-}
-
-function getEntriesForScope(scopeSpec) {
-  if (!scopeSpec || scopeSpec.scope === "active") {
-    return getEntriesForActiveNotebook();
-  }
-  if (scopeSpec.scope === "journal") {
-    const nbId = scopeSpec.notebookId;
-    if (!nbId) return [];
-    return entries.filter(e => (e.notebookId || "default") === nbId);
-  }
-  // scope === "all"
-  return [...entries];
-}
-
-function buildTagIndexFromEntries(entryList) {
+function buildTagIndex() {
   // Returns a list of tag records:
   // { norm, display, countEntries, countOccurrences, color }
   const byNorm = new Map();
-  const listInScope = Array.isArray(entryList) ? entryList : [];
 
-  for (const entry of listInScope) {
+  for (const entry of entries) {
     const entryTags = Array.isArray(entry.tags) ? entry.tags : [];
     const seenInThisEntry = new Set();
 
@@ -3011,11 +2145,9 @@ function buildTagIndexFromEntries(entryList) {
   return list;
 }
 
-function runSearchEntriesByNormalizedTagInScope(tagNorm, tagDisplay, scopeSpec) {
+function runSearchEntriesByNormalizedTag(tagNorm, tagDisplay) {
   const norm = normalizeTagText(tagNorm);
-  const inScope = getEntriesForScope(scopeSpec);
-
-  const results = inScope.filter(e => {
+  const results = entries.filter(e => {
     const tlist = Array.isArray(e.tags) ? e.tags : [];
     return tlist.some(t => normalizeTagText(t && t.text ? t.text : "") === norm);
   });
@@ -3023,31 +2155,20 @@ function runSearchEntriesByNormalizedTagInScope(tagNorm, tagDisplay, scopeSpec) 
   // Keep the recency ordering used by normal search
   results.sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
 
-  const titlePrefix =
-    scopeSpec && scopeSpec.scope === "all"
-      ? "All Journals"
-      : scopeSpec && scopeSpec.scope === "journal"
-        ? `Journal: ${getNotebookNameById(scopeSpec.notebookId)}`
-        : `Journal: ${getNotebookNameById(activeNotebookId)}`;
-
   renderSearchResults(results, {
     state: "results",
     query: `#${tagDisplay || norm}`,
     mode: "entries",
-    title: `Tag: ${tagDisplay || norm}`,
-    scopeLabel: titlePrefix,
-    scopeSpec,
-    showNotebookBadges: scopeSpec && scopeSpec.scope === "all"
+    title: `Tag: ${tagDisplay || norm}`
   });
 
   showSearchOnlyView();
   updateStatus(`Found ${results.length} entr${results.length === 1 ? "y" : "ies"} with tag`);
 }
 
-function runTagBrowseInScope(fragment, scopeSpec) {
+function runTagBrowse(fragment) {
   const fragNorm = normalizeTagText(fragment);
-  const inScope = getEntriesForScope(scopeSpec);
-  const tagIndex = buildTagIndexFromEntries(inScope);
+  const tagIndex = buildTagIndex();
 
   const filtered = !fragNorm
     ? tagIndex
@@ -3056,20 +2177,11 @@ function runTagBrowseInScope(fragment, scopeSpec) {
         return t.norm.includes(fragNorm) || disp.includes(fragNorm);
       });
 
-  const titlePrefix =
-    scopeSpec && scopeSpec.scope === "all"
-      ? "All Journals"
-      : scopeSpec && scopeSpec.scope === "journal"
-        ? `Journal: ${getNotebookNameById(scopeSpec.notebookId)}`
-        : `Journal: ${getNotebookNameById(activeNotebookId)}`;
-
   renderSearchResults(filtered, {
     state: "tagBrowse",
     fragment: fragment || "",
     mode: "tags",
-    title: fragNorm ? `Tags matching “${fragment.trim()}”` : "All Tags",
-    scopeLabel: titlePrefix,
-    scopeSpec
+    title: fragNorm ? `Tags matching “${fragment.trim()}”` : "All Tags"
   });
 
   showSearchOnlyView();
@@ -3077,7 +2189,7 @@ function runTagBrowseInScope(fragment, scopeSpec) {
 }
 
 
-function entryMatchesQuery(entry, qLower) {
+  function entryMatchesQuery(entry, qLower) {
     const fields = [
       entry.title || "",
       entry.body || "",
@@ -3093,7 +2205,7 @@ function entryMatchesQuery(entry, qLower) {
 
   
   function runSearch(query) {
-    const raw = (query || "").trim();
+    const q = (query || "").trim();
 
     // Remember what entry the user was on when search opened.
     // If they pick a result, we keep the picked entry on close.
@@ -3107,74 +2219,28 @@ function entryMatchesQuery(entry, qLower) {
     currentDayEntries = [];
     renderDayResults();
 
-    // Scope routing (active vs all vs journal:<name>)
-    const scopeSpec = parseSearchScope(raw);
-    const q = (scopeSpec.cleanedQuery || "").trim();
-
-    // Tag mode routing (tag:, tags:, #) – applied AFTER scope parsing
+    // Tag mode routing (tag:, tags:, #)
     const tagSpec = parseTagQuery(q);
 
     if (!q) {
-      // If the user typed only scope tokens (ex: "scope:all"), treat as empty query.
-      // (Tag browse still works when the query is "tag:" etc.)
-      if (tagSpec && tagSpec.mode === "tagBrowse") {
-        runTagBrowseInScope(tagSpec.fragment || "", scopeSpec);
-        return;
-      }
-
-      renderSearchResults([], {
-        state: "emptyQuery",
-        title: "Search Results",
-        scopeLabel:
-          scopeSpec.scope === "all"
-            ? "All Journals"
-            : scopeSpec.scope === "journal"
-              ? (scopeSpec.notebookId ? `Journal: ${getNotebookNameById(scopeSpec.notebookId)}` : `Journal: ${scopeSpec.notebookName || "Unknown"}`)
-              : `Journal: ${getNotebookNameById(activeNotebookId)}`
-      });
+      // MED-lite Step 2: Search results rendering must flow through renderSearchResults()
+      renderSearchResults([], { state: "emptyQuery", title: "Search Results" });
       showSearchOnlyView();
       updateStatus("Search cleared");
       return;
     }
 
-    // If journal name was provided but doesn't exist, return empty results (clear + honest)
-    if (scopeSpec.scope === "journal" && !scopeSpec.notebookId) {
-      renderSearchResults([], {
-        state: "noResults",
-        title: "Search Results",
-        scopeLabel: `Journal not found: ${scopeSpec.notebookName || ""}`
-      });
-      showSearchOnlyView();
-      updateStatus("No such journal");
-      return;
-    }
-
+    // If the user invoked tag browsing, render tag results instead of entry results.
     if (tagSpec && tagSpec.mode === "tagBrowse") {
-      runTagBrowseInScope(tagSpec.fragment || "", scopeSpec);
+      runTagBrowse(tagSpec.fragment || "");
       return;
     }
 
     const qLower = q.toLowerCase();
-    const pool = getEntriesForScope(scopeSpec);
-    const results = pool.filter(e => entryMatchesQuery(e, qLower));
+    const results = entries.filter(e => entryMatchesQuery(e, qLower));
     results.sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
 
-    const scopeLabel =
-      scopeSpec.scope === "all"
-        ? "All Journals"
-        : scopeSpec.scope === "journal"
-          ? `Journal: ${getNotebookNameById(scopeSpec.notebookId)}`
-          : `Journal: ${getNotebookNameById(activeNotebookId)}`;
-
-    renderSearchResults(results, {
-      state: "results",
-      query: q,
-      mode: "entries",
-      title: "Search Results",
-      scopeLabel,
-      showNotebookBadges: scopeSpec.scope === "all"
-    });
-
+    renderSearchResults(results, { state: "results", query: q, mode: "entries", title: "Search Results" });
     showSearchOnlyView();
     updateStatus(`Found ${results.length} result${results.length === 1 ? "" : "s"}`);
   }
@@ -3186,7 +2252,7 @@ function entryMatchesQuery(entry, qLower) {
 
     // Update the card title when needed (keeps UI clear without adding new UI surfaces)
     if (searchTitleEl) {
-      searchTitleEl.textContent = (opts.title || "Search Results") + (opts.scopeLabel ? ` — ${opts.scopeLabel}` : "");
+      searchTitleEl.textContent = opts.title || "Search Results";
     }
 
     // MED-lite Step 2: ALL search card contents (empty state + results list) render here.
@@ -3198,28 +2264,9 @@ function entryMatchesQuery(entry, qLower) {
       return;
     }
 
-    // Performance guardrail: limit large result sets so the UI stays fast.
-    // We show the first N results and prompt the user to refine their query.
-    const isTagMode = opts && opts.mode === "tags";
-    const limit = isTagMode ? MAX_TAG_RESULTS : MAX_SEARCH_RESULTS;
-
-    const totalCount = Array.isArray(results) ? results.length : 0;
-    const isLimited = totalCount > limit;
-    const limitedResults = isLimited ? results.slice(0, limit) : results;
-
-    function appendLimitNotice() {
-      const note = document.createElement("div");
-      note.className = "search-result-snippet search-limit-note";
-      note.textContent = `Showing first ${limit} of ${totalCount}. Refine your search to narrow results.`;
-      searchResultsEl.appendChild(note);
-    }
-
-    if (isLimited) appendLimitNotice();
-
-
 // Tag browse mode: results are tag records, not entries
 if (opts.mode === "tags") {
-  if (!limitedResults || limitedResults.length === 0) {
+  if (!results || results.length === 0) {
     const msg = document.createElement("div");
     msg.className = "search-result-snippet";
     msg.textContent = "No tags found. Try a different filter.";
@@ -3227,9 +2274,7 @@ if (opts.mode === "tags") {
     return;
   }
 
-  const frag = document.createDocumentFragment();
-
-  limitedResults.forEach(tagRec => {
+  results.forEach(tagRec => {
     const item = document.createElement("div");
     item.className = "search-result-item";
     item.dataset.tagNorm = tagRec.norm || "";
@@ -3248,18 +2293,16 @@ if (opts.mode === "tags") {
     item.appendChild(snippetEl);
 
     item.addEventListener("click", () => {
-      runSearchEntriesByNormalizedTagInScope(tagRec.norm, tagRec.display || tagRec.norm, opts.scopeSpec || { scope: "active" });
+      runSearchEntriesByNormalizedTag(tagRec.norm, tagRec.display || tagRec.norm);
     });
 
-    frag.appendChild(item);
+    searchResultsEl.appendChild(item);
   });
 
-  searchResultsEl.appendChild(frag);
-  if (isLimited) appendLimitNotice();
   return;
 }
 
-if (!limitedResults || limitedResults.length === 0) {
+if (!results || results.length === 0) {
       const msg = document.createElement("div");
       msg.className = "search-result-snippet";
       msg.textContent = "No results. Try a different query.";
@@ -3267,32 +2310,14 @@ if (!limitedResults || limitedResults.length === 0) {
       return;
     }
 
-    const frag = document.createDocumentFragment();
-
-    limitedResults.forEach(entry => {
+    results.forEach(entry => {
       const item = document.createElement("div");
       item.className = "search-result-item";
       item.dataset.entryId = entry.id;
 
       const titleEl = document.createElement("div");
       titleEl.className = "search-result-title";
-
-      const row = document.createElement("div");
-      row.className = "search-result-title-row";
-
-      if (opts && opts.showNotebookBadges) {
-        const badge = document.createElement("span");
-        badge.className = "search-result-badge";
-        badge.textContent = getNotebookNameById(entry.notebookId || "default");
-        row.appendChild(badge);
-      }
-
-      const titleText = document.createElement("span");
-      titleText.className = "search-result-title-text";
-      titleText.textContent = entry.title || "(Untitled entry)";
-      row.appendChild(titleText);
-
-      titleEl.appendChild(row);
+      titleEl.textContent = entry.title || "(Untitled entry)";
 
       const snippetEl = document.createElement("div");
       snippetEl.className = "search-result-snippet";
@@ -3314,18 +2339,11 @@ if (!limitedResults || limitedResults.length === 0) {
       item.appendChild(snippetEl);
 
       item.addEventListener("click", () => {
-        if (opts && opts.showNotebookBadges) {
-          openEntryFromSearchGlobal(entry.id);
-        } else {
-          openEntryFromSearch(entry.id);
-        }
+        openEntryFromSearch(entry.id);
       });
 
-      frag.appendChild(item);
+      searchResultsEl.appendChild(item);
     });
-
-    searchResultsEl.appendChild(frag);
-    if (isLimited) appendLimitNotice();
   }
 
   // ============================================
@@ -3439,7 +2457,7 @@ if (!limitedResults || limitedResults.length === 0) {
     showEl(dayResultsEl);
 
     const card = document.createElement("div");
-    card.className = "day-results-card card";
+    card.className = "day-results-card";
 
     const titleEl = document.createElement("div");
     titleEl.className = "day-results-title";
@@ -3539,160 +2557,12 @@ if (!limitedResults || limitedResults.length === 0) {
     updateStatus("Exported entries as JSON");
   }
 
-
-  function parseImportedPayload(payload) {
-    // Accept either:
-    // 1) legacy export: [entries...]
-    // 2) bundle export: { entries: [...], notebooks: [...], activeNotebookId: "..." }
-    if (Array.isArray(payload)) {
-      return { entries: payload, notebooks: null, activeNotebookId: null };
-    }
-    if (payload && typeof payload === "object") {
-      const maybeEntries = payload.entries;
-      const maybeNotebooks = payload.notebooks;
-      const maybeActive = payload.activeNotebookId;
-      return {
-        entries: Array.isArray(maybeEntries) ? maybeEntries : [],
-        notebooks: Array.isArray(maybeNotebooks) ? maybeNotebooks : null,
-        activeNotebookId: typeof maybeActive === "string" ? maybeActive : null
-      };
-    }
-    return { entries: [], notebooks: null, activeNotebookId: null };
-  }
-
-  function buildNotebooksFromEntries(importedEntries) {
-    // If the import doesn't include notebooks, we still need a notebook list
-    // so the UI stays coherent.
-    const ids = new Set();
-    (Array.isArray(importedEntries) ? importedEntries : []).forEach(e => {
-      const nbId = (e && e.notebookId) ? e.notebookId : "default";
-      ids.add(nbId || "default");
-    });
-
-    const list = [];
-    // Always ensure default exists.
-    if (!ids.has("default")) ids.add("default");
-
-    ids.forEach(id => {
-      // Preserve existing notebook name when IDs match (nice when re-importing partial dumps)
-      const existing = notebooks.find(n => n.id === id);
-      list.push(
-        ensureNotebookShape({
-          id,
-          name: existing ? existing.name : (id === "default" ? "Journal" : "Imported Journal")
-        })
-      );
-    });
-
-    // Keep default first (calm + predictable)
-    list.sort((a, b) => (a.id === "default" ? -1 : b.id === "default" ? 1 : (a.name || "").localeCompare(b.name || "")));
-    return list;
-  }
-
-  async function applyImportedData(importedEntriesRaw, importedNotebooksRaw, importedActiveId) {
-    // Replace in-memory state
-    entries = (Array.isArray(importedEntriesRaw) ? importedEntriesRaw : []).map(migrateEntry);
-
-    if (Array.isArray(importedNotebooksRaw)) {
-      notebooks = migrateNotebooks(importedNotebooksRaw);
-    } else {
-      notebooks = migrateNotebooks(buildNotebooksFromEntries(entries));
-    }
-
-    // Active notebook selection
-    const desiredActive = importedActiveId || (notebooks[0] ? notebooks[0].id : "default");
-    setActiveNotebookId(desiredActive);
-
-    // Persist
-    journalService.saveAll(entries);
-    notebookService.saveAll(notebooks);
-    notebookService.saveActiveId(activeNotebookId);
-
-    // Ensure images are in IndexedDB (imports may contain legacy imageData)
-    await migrateImagesToIndexedDBIfNeeded(entries);
-
-    // Reset UI state (avoid weird stacking after import)
-    currentDayIso = null;
-    currentDayEntries = [];
-    renderDayResults();
-    hideEl(pageSearch);
-    showJournalView();
-    searchOpenedFromEntryId = null;
-    searchPickedEntryId = null;
-    exitNotebookDeleteMode();
-
-    // Render notebooks + open the most recent entry in the active notebook
-    renderNotebookList();
-
-    const sorted = getChronologicallySortedEntries();
-    if (sorted.length === 0) {
-      showEmptyNotebookState();
-      updateStatus("Import complete (no entries)");
-      return;
-    }
-
-    const mostRecent = sorted[sorted.length - 1];
-    currentEntryId = mostRecent.id;
-    calendarSelectedIso = mostRecent.date || null;
-
-    renderEditor(mostRecent);
-    setCurrentEntrySnapshotFromEntry(mostRecent);
-    setEditorDirty(false);
-    clearNonTextDirty();
-
-    updateNavButtons();
-    renderCalendar();
-
-    updateStatus("Import complete");
-  }
-
-  async function handleImportFile(file) {
-    if (!file) return;
-
-    // Basic guard: only json-ish files
-    const name = (file.name || "").toLowerCase();
-    if (file.type && file.type !== "application/json" && !name.endsWith(".json")) {
-      updateStatus("Please choose a .json file");
-      return;
-    }
-
-    let text = "";
-    try {
-      text = await file.text();
-    } catch (err) {
-      console.error("Failed to read import file", err);
-      updateStatus("Failed to read file");
-      return;
-    }
-
-    let payload;
-    try {
-      payload = JSON.parse(text);
-    } catch (err) {
-      updateStatus("Invalid JSON");
-      return;
-    }
-
-    const parsed = parseImportedPayload(payload);
-
-    if (!parsed.entries || parsed.entries.length === 0) {
-      updateStatus("No entries found in that file");
-      return;
-    }
-
-    openGenericConfirm("Import JSON and replace current data?", async () => {
-      await applyImportedData(parsed.entries, parsed.notebooks, parsed.activeNotebookId);
-    });
-  }
   // ============================================
   // Init
   // ============================================
 
   async function init() {
     entries = journalService.loadAll();
-    notebooks = notebookService.loadAll();
-    const savedActive = notebookService.loadActiveId();
-    setActiveNotebookId(savedActive || (notebooks[0] ? notebooks[0].id : "default"));
     await migrateImagesToIndexedDBIfNeeded(entries);
     setupTagDialog();
 
@@ -3701,27 +2571,6 @@ if (!limitedResults || limitedResults.length === 0) {
 
     // Initialize status bar empty.
     updateStatus("");
-
-    // Global Escape handler (single place for predictable "close" behavior)
-    // Priority: top-most modal -> notebook delete mode -> search results
-    document.addEventListener("keydown", (e) => {
-      if (e.key !== "Escape") return;
-
-      // 1) Close the top-most modal/dialog if any are open.
-      if (ModalManager.closeTop()) return;
-
-      // 2) Exit notebook delete mode (tapping Esc should always feel safe)
-      if (isNotebookDeleteMode) {
-        exitNotebookDeleteMode();
-        return;
-      }
-
-      // 3) Close search results (returns to entry per existing search-close rules)
-      if (isSearchVisible()) {
-        closeSearchResults();
-        return;
-      }
-    });
 
     if (entries.length === 0) {
       newEntry();
@@ -3772,63 +2621,6 @@ if (!limitedResults || limitedResults.length === 0) {
     if (exportBtn) {
       exportBtn.addEventListener("click", exportEntries);
     }
-
-    if (importBtn && importFileInput) {
-      importBtn.addEventListener("click", () => {
-        // Reset so selecting the same file twice still triggers change
-        importFileInput.value = "";
-        importFileInput.click();
-      });
-
-      importFileInput.addEventListener("change", () => {
-        const file = importFileInput.files && importFileInput.files[0] ? importFileInput.files[0] : null;
-        if (!file) return;
-        handleImportFile(file);
-      });
-    }
-
-
-    // Journals (Notebooks) events
-    if (journalsToggleBtn) {
-      journalsToggleBtn.addEventListener("click", (evt) => {
-        evt.preventDefault();
-        evt.stopPropagation();
-        setNotebookPanelCollapsed(!isNotebookPanelCollapsed);
-      });
-    }
-    if (journalsHeader) {
-      journalsHeader.addEventListener("click", (evt) => {
-        if (evt.target && evt.target.closest && evt.target.closest("#journals-toggle-btn")) return;
-        setNotebookPanelCollapsed(!isNotebookPanelCollapsed);
-      });
-      journalsHeader.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          setNotebookPanelCollapsed(!isNotebookPanelCollapsed);
-        }
-      });
-    }
-
-    if (journalAddBtn) {
-      journalAddBtn.addEventListener("click", () => {
-        requestAddNotebookInline();
-      });
-    }
-
-    if (journalDeleteBtn) {
-      journalDeleteBtn.addEventListener("click", () => {
-        toggleNotebookDeleteMode();
-      });
-    }
-
-    document.addEventListener("mousedown", (evt) => {
-      if (!isNotebookDeleteMode) return;
-      const sidebarJournals = document.getElementById("sidebar-journals");
-      if (!sidebarJournals) return;
-      if (!sidebarJournals.contains(evt.target)) {
-        exitNotebookDeleteMode();
-      }
-    });
 
     // Search events
     if (searchInput) {

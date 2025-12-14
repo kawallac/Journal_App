@@ -1,5 +1,18 @@
+/* ============================================================
+   VIBE DOCUMENT (AUTHORITATIVE)
+   This file is governed by:
+     → docs/vibe_doc_journal_app.md
+
+   All UI, UX, interaction, and structural decisions in this file
+   must align with the Journal App Vibe:
+   “An operating system for thinking.”
+
+   When changes feel technically correct but emotionally wrong,
+   defer to the vibe document.
+   ============================================================ */
+
 /* ============================================
-   JOURNAL APP – v0.4.3
+   JOURNAL APP – v0.4.10
    Frontend logic:
      - Local storage adapter
      - Journal entries (image + tags)
@@ -17,7 +30,13 @@ document.addEventListener("DOMContentLoaded", () => {
   // ============================================
 
   function formatDateForInput(date) {
-    return date.toISOString().slice(0, 10);
+    // Use LOCAL date components so the app respects the user's local time zone
+    // instead of UTC (toISOString() would roll the date forward in the evening
+    // for users in negative time zones like EST).
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
   }
 
   function generateId() {
@@ -33,13 +52,34 @@ document.addEventListener("DOMContentLoaded", () => {
     if (statusEl) statusEl.textContent = text;
   }
 
-  // Simple helper to know if search page is visible
-  function isSearchVisible() {
-    const pageSearch = document.getElementById("page-search");
-    return !!pageSearch && pageSearch.style.display !== "none";
-  }
+  function flashSaveButton() {
+  const btn = document.getElementById("save-btn");
+  if (!btn) return;
+  btn.classList.add("btn-accent-flash");
+  setTimeout(() => {
+    btn.classList.remove("btn-accent-flash");
+  }, 700);
+}
 
-  // ============================================
+
+  // Simple helper to know if search page is visible (MED: visibility via .hidden only)
+function isSearchVisible() {
+  const pageSearch = document.getElementById("page-search");
+  return !!pageSearch && !pageSearch.classList.contains("hidden");
+}
+
+// MED-lite visibility helpers (no inline style.display toggles)
+function showEl(el) {
+  if (!el) return;
+  el.classList.remove("hidden");
+}
+
+function hideEl(el) {
+  if (!el) return;
+  el.classList.add("hidden");
+}
+
+// ============================================
   // Storage Adapter + Migration
   // ============================================
 
@@ -236,7 +276,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const prevBtn = document.getElementById("prev-btn");
   const nextBtn = document.getElementById("next-btn");
   const exportBtn = document.getElementById("export-btn");
-  const journalViewBtn = document.getElementById("journal-view-btn");
 
   const editorInnerEl = document.getElementById("editor-inner");
   const pageJournal = document.getElementById("page-journal");
@@ -247,6 +286,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const searchInput = document.getElementById("search-input");
   const searchClearBtn = document.getElementById("search-clear-btn");
   const searchResultsEl = document.getElementById("search-results");
+
+  const searchCloseBtn = document.getElementById("search-close-btn");
 
   const calendarMonthLabel = document.getElementById("calendar-month-label");
   const calendarGrid = document.getElementById("calendar-grid");
@@ -261,17 +302,29 @@ document.addEventListener("DOMContentLoaded", () => {
   let currentEntryId = null;
   let currentTags = [];
 
+
+  // Search close behavior state
+  // - searchOpenedFromEntryId: entry that was showing when search results first appeared
+  // - searchPickedEntryId: set when user clicks a result (means keep current entry on close)
+  let searchOpenedFromEntryId = null;
+  let searchPickedEntryId = null;
+
   let calendarCurrentYear = null;
   let calendarCurrentMonth = null;
 
   let currentDayIso = null;
   let currentDayEntries = [];
 
+  // Calendar selection state (independent of current entry / day-results card)
+  let calendarSelectedIso = null;
+
   // Tag dialog
   let tagDialogBackdrop = null;
   let tagDialogInput = null;
   let tagDialogColorSwatches = [];
   let tagDialogActiveTagId = null;
+  let tagDialogMode = "edit"; // "edit" | "create"
+  let tagDialogDeleteBtn = null;
 
   const TAG_COLORS = [
     "#2563eb",
@@ -282,19 +335,37 @@ document.addEventListener("DOMContentLoaded", () => {
     "#0f766e"
   ];
 
+
+
+
+
   // ============================================
   // Core Helpers
   // ============================================
 
   function getChronologicallySortedEntries() {
+    // Stable chronological ordering:
+    // 1) date (YYYY-MM-DD)
+    // 2) createdAt (so editing/saving doesn't reshuffle within a day)
+    // 3) updatedAt (fallback)
+    // 4) id (final deterministic tie-breaker)
     const copy = [...entries];
     copy.sort((a, b) => {
       const aDate = a.date || "";
       const bDate = b.date || "";
       if (aDate !== bDate) return aDate.localeCompare(bDate);
-      const aTime = a.updatedAt || "";
-      const bTime = b.updatedAt || "";
-      return aTime.localeCompare(bTime);
+
+      const aCreated = a.createdAt || "";
+      const bCreated = b.createdAt || "";
+      if (aCreated !== bCreated) return aCreated.localeCompare(bCreated);
+
+      const aUpdated = a.updatedAt || "";
+      const bUpdated = b.updatedAt || "";
+      if (aUpdated !== bUpdated) return aUpdated.localeCompare(bUpdated);
+
+      const aId = a.id || "";
+      const bId = b.id || "";
+      return aId.localeCompare(bId);
     });
     return copy;
   }
@@ -338,26 +409,59 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ============================================
-  // View helpers
-  // ============================================
+// View helpers (MED-lite: .hidden only)
+// ============================================
 
-  function showJournalView() {
-    if (pageSearch) pageSearch.style.display = "none";
-    if (pageJournal) pageJournal.style.display = "block";
-    if (pageTopBar) pageTopBar.style.display = "flex";
+function showJournalView() {
+  // If we are leaving search view by any path other than the search close button,
+  // treat it as ending the current search session.
+  if (isSearchVisible()) {
+    searchOpenedFromEntryId = null;
+    searchPickedEntryId = null;
   }
 
-  function showSearchOnlyView() {
-    if (pageSearch) pageSearch.style.display = "block";
-    if (pageJournal) pageJournal.style.display = "none";
-    if (pageTopBar) pageTopBar.style.display = "none";
+  hideEl(pageSearch);
+  showEl(pageJournal);
+  showEl(pageTopBar);
+}
+
+function showSearchOnlyView() {
+  showEl(pageSearch);
+  hideEl(pageJournal);
+  hideEl(pageTopBar);
+}
+
+function showSearchWithEditorView() {
+  showEl(pageSearch);
+  showEl(pageJournal);
+  showEl(pageTopBar);
+}
+
+
+
+function closeSearchResults() {
+  // Hide search card
+  hideEl(pageSearch);
+
+  // Clear the "search session" state after we act on it.
+  const shouldReturnToOpenedFrom = !searchPickedEntryId;
+  const targetId = searchOpenedFromEntryId;
+
+  searchOpenedFromEntryId = null;
+  searchPickedEntryId = null;
+
+  // If the user never clicked a search result, return to whatever entry
+  // was visible when the search first appeared.
+  if (shouldReturnToOpenedFrom && targetId) {
+    openEntryById(targetId);
+    return;
   }
 
-  function showSearchWithEditorView() {
-    if (pageSearch) pageSearch.style.display = "block";
-    if (pageJournal) pageJournal.style.display = "block";
-    if (pageTopBar) pageTopBar.style.display = "flex";
-  }
+  // Otherwise, keep whatever entry is currently shown.
+  showJournalView();
+}
+
+
 
   // ============================================
   // Editor Rendering
@@ -410,9 +514,6 @@ document.addEventListener("DOMContentLoaded", () => {
             <div class="field-label">Journal Page Photo</div>
             <input id="entry-photo" type="file" accept="image/*" />
           </div>
-          <div class="image-note">
-            Tip: snap a photo of your handwritten page and add tags on top.
-          </div>
         </div>
 
         <div id="image-preview" class="image-preview">
@@ -440,6 +541,61 @@ document.addEventListener("DOMContentLoaded", () => {
     loadAndRenderEntryImage(safe);
   }
 
+
+  // ============================================
+  // Photo remove control (X button)
+  // ============================================
+
+  function ensurePhotoRemoveButton() {
+    const imagePreview = document.getElementById("image-preview");
+    if (!imagePreview) return;
+
+    // Remove any existing remove button first (idempotent).
+    const existing = imagePreview.querySelector(".photo-remove-btn");
+    if (existing) existing.remove();
+
+    const entry = getCurrentEntryObject();
+    const hasImg = !!imagePreview.querySelector("img");
+
+    // Only show the remove control when an image is actually present.
+    if (!entry || !entry.imageId || !hasImg) return;
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "photo-remove-btn";
+    btn.setAttribute("aria-label", "Remove photo");
+    btn.textContent = "×";
+
+    btn.addEventListener("click", (evt) => {
+      evt.preventDefault();
+      evt.stopPropagation();
+      openPhotoRemoveConfirm();
+    });
+
+    imagePreview.appendChild(btn);
+  }
+
+  async function removePhotoFromCurrentEntry() {
+    const entry = getCurrentEntryObject();
+    if (!entry || !entry.imageId) return;
+
+    const oldImageId = entry.imageId;
+
+    // Update entry first (so UI doesn't depend on IndexedDB success).
+    entry.imageId = null;
+    entry.updatedAt = new Date().toISOString();
+    journalService.saveAll(entries);
+
+    try {
+      await ImageStore.deleteImage(oldImageId);
+    } catch (err) {
+      console.error("Failed to delete image from IndexedDB", err);
+    }
+
+    await loadAndRenderEntryImage(entry);
+    updateStatus("Photo removed");
+  }
+
   async function loadAndRenderEntryImage(entry) {
     const imagePreview = document.getElementById("image-preview");
     if (!imagePreview) return;
@@ -447,6 +603,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!entry || !entry.imageId) {
       imagePreview.innerHTML = `<span>No image yet. Upload a photo of your journal page.</span>`;
       renderTagsOnImage();
+      ensurePhotoRemoveButton();
       return;
     }
 
@@ -455,17 +612,19 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!dataUrl) {
         imagePreview.innerHTML = `<span>No image yet. Upload a photo of your journal page.</span>`;
         renderTagsOnImage();
+        ensurePhotoRemoveButton();
         return;
       }
 
       imagePreview.innerHTML = `<img src="${dataUrl}" alt="Journal page image" />`;
       renderTagsOnImage();
+      ensurePhotoRemoveButton();
     } catch (err) {
       console.error("Failed to load image from IndexedDB", err);
       imagePreview.innerHTML = `<span>Unable to load image.</span>`;
+      ensurePhotoRemoveButton();
     }
   }
-
 
   function wireEditorInputs() {
     const dateInput = document.getElementById("entry-date");
@@ -508,47 +667,102 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     }
 
+    
+    // Photo upload + drag/drop
     if (photoInput && imagePreview) {
+      async function handlePhotoFile(file) {
+        if (!file) return;
+
+        // Only accept images
+        if (!file.type || !file.type.startsWith("image/")) {
+          updateStatus("Please drop an image file");
+          return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+          const src = e.target.result;
+
+          // Show the image immediately in the UI
+          imagePreview.innerHTML = `<img src="${src}" alt="Journal page image" />`;
+
+          const entry = getCurrentEntryObject();
+          if (!entry) return;
+
+          // If there was a previous image, delete it from IndexedDB
+          if (entry.imageId) {
+            try {
+              await ImageStore.deleteImage(entry.imageId);
+            } catch (err) {
+              console.error("Failed to delete old image from IndexedDB", err);
+            }
+          }
+
+          const newImageId = generateId();
+          try {
+            await ImageStore.saveImage(newImageId, src);
+            entry.imageId = newImageId;
+            if (entry.imageData) {
+              delete entry.imageData;
+            }
+            entry.updatedAt = new Date().toISOString();
+            journalService.saveAll(entries);
+            updateStatus("Image updated");
+            renderTagsOnImage();
+            ensurePhotoRemoveButton();
+          } catch (err) {
+            console.error("Failed to save image to IndexedDB", err);
+            updateStatus("Failed to save image");
+          }
+        };
+        reader.readAsDataURL(file);
+      }
+
+      // Standard file input
       photoInput.addEventListener("change", () => {
         if (photoInput.files && photoInput.files[0]) {
-          const file = photoInput.files[0];
-          const reader = new FileReader();
-          reader.onload = async (e) => {
-            const src = e.target.result;
-
-            // Show the image immediately in the UI
-            imagePreview.innerHTML = `<img src="${src}" alt="Journal page image" />`;
-
-            const entry = getCurrentEntryObject();
-            if (!entry) return;
-
-            // If there was a previous image, delete it from IndexedDB
-            if (entry.imageId) {
-              try {
-                await ImageStore.deleteImage(entry.imageId);
-              } catch (err) {
-                console.error("Failed to delete old image from IndexedDB", err);
-              }
-            }
-
-            const newImageId = generateId();
-            try {
-              await ImageStore.saveImage(newImageId, src);
-              entry.imageId = newImageId;
-              if (entry.imageData) {
-                delete entry.imageData;
-              }
-              entry.updatedAt = new Date().toISOString();
-              journalService.saveAll(entries);
-              updateStatus("Image updated");
-              renderTagsOnImage();
-            } catch (err) {
-              console.error("Failed to save image to IndexedDB", err);
-              updateStatus("Failed to save image");
-            }
-          };
-          reader.readAsDataURL(file);
+          handlePhotoFile(photoInput.files[0]);
+          // Reset the input so selecting the same file again still triggers change
+          photoInput.value = "";
         }
+      });
+
+      // Drag & drop on the preview area
+      imagePreview.addEventListener("dragenter", (evt) => {
+        evt.preventDefault();
+        evt.stopPropagation();
+        imagePreview.classList.add("is-dragover");
+      });
+
+      imagePreview.addEventListener("dragover", (evt) => {
+        evt.preventDefault();
+        evt.stopPropagation();
+        imagePreview.classList.add("is-dragover");
+      });
+
+      imagePreview.addEventListener("dragleave", (evt) => {
+        evt.preventDefault();
+        evt.stopPropagation();
+
+        // If we're still inside the preview (moving between children), ignore.
+        const stillInside =
+          evt.relatedTarget && imagePreview.contains(evt.relatedTarget);
+
+        if (!stillInside) {
+          imagePreview.classList.remove("is-dragover");
+        }
+      });
+
+      imagePreview.addEventListener("drop", (evt) => {
+        evt.preventDefault();
+        evt.stopPropagation();
+        imagePreview.classList.remove("is-dragover");
+
+        const dt = evt.dataTransfer;
+        const file = dt && dt.files && dt.files[0] ? dt.files[0] : null;
+        if (!file) return;
+
+        handlePhotoFile(file);
       });
     }
 
@@ -572,11 +786,18 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!hasImage) return;
 
     currentTags.forEach(tag => {
+      // For new tags that haven't been placed yet, we don't render them on the image.
+      // They will only show in the tag bar until the user drags them onto the photo
+      // and we assign x/y coordinates.
+      if (typeof tag.x !== "number" || typeof tag.y !== "number") {
+        return;
+      }
+
       const el = document.createElement("div");
       el.className = "tag-pill";
       el.textContent = tag.text || "Tag";
-      el.style.left = `${tag.x || 50}%`;
-      el.style.top = `${tag.y || 50}%`;
+      el.style.left = `${tag.x}%`;
+      el.style.top = `${tag.y}%`;
       el.style.backgroundColor = tag.color || TAG_COLORS[0];
       el.dataset.tagId = tag.id;
 
@@ -626,7 +847,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       el.addEventListener("dblclick", (evt) => {
         evt.stopPropagation();
-        openTagDialog(tag.id);
+        openTagDialog(tag.id, "edit");
       });
 
       imagePreview.appendChild(el);
@@ -665,90 +886,119 @@ document.addEventListener("DOMContentLoaded", () => {
       // Allow editing tag text/color from the bar
       pill.addEventListener("dblclick", (evt) => {
         evt.stopPropagation();
-        openTagDialog(tag.id);
+        openTagDialog(tag.id, "edit");
       });
 
-      // Drag from tag bar onto image
-      pill.addEventListener("mousedown", (evt) => {
-        evt.preventDefault();
+// Drag from tag bar onto image
+pill.addEventListener("mousedown", (evt) => {
+  evt.preventDefault();
 
-        const imagePreview = document.getElementById("image-preview");
-        const imgEl = imagePreview ? imagePreview.querySelector("img") : null;
+  const imagePreview = document.getElementById("image-preview");
+  const imgEl = imagePreview ? imagePreview.querySelector("img") : null;
 
-        // If there's no image, don't start a drag onto the photo
-        if (!imgEl) {
-          updateStatus("Add an image first to place tags on the photo");
-          return;
-        }
+  // If there's no image, don't start a drag onto the photo
+  if (!imgEl) {
+    updateStatus("Add an image first to place tags on the photo");
+    return;
+  }
 
-        // Create a simple ghost pill that follows the cursor
-        const ghost = document.createElement("div");
-        ghost.className = "tag-pill";
-        ghost.textContent = tag.text || "Tag";
-        ghost.style.position = "fixed";
-        ghost.style.pointerEvents = "none";
-        ghost.style.zIndex = "9999";
-        ghost.style.backgroundColor = tag.color || TAG_COLORS[0];
-        ghost.style.color = "#ffffff";
-        ghost.style.borderRadius = "999px";
-        ghost.style.padding = "0.15rem 0.6rem";
-        document.body.appendChild(ghost);
+  const startX = evt.clientX;
+  const startY = evt.clientY;
+  let isDragging = false;
+  let ghost = null;
 
-        function updateGhostPosition(moveEvt) {
-          ghost.style.left = moveEvt.clientX + 8 + "px";
-          ghost.style.top = moveEvt.clientY + 8 + "px";
-        }
+  function updateGhostPosition(moveEvt) {
+    if (!ghost) return;
+    ghost.style.left = moveEvt.clientX + 8 + "px";
+    ghost.style.top = moveEvt.clientY + 8 + "px";
+  }
 
-        updateGhostPosition(evt);
+  function startDrag(startEvt) {
+    if (isDragging) return;
+    isDragging = true;
 
-        function onMove(moveEvt) {
-          updateGhostPosition(moveEvt);
-        }
+    ghost = document.createElement("div");
+    ghost.className = "tag-pill";
+    ghost.textContent = tag.text || "Tag";
+    ghost.style.position = "fixed";
+    ghost.style.pointerEvents = "none";
+    ghost.style.zIndex = "9999";
+    ghost.style.backgroundColor = tag.color || TAG_COLORS[0];
+    ghost.style.color = "#ffffff";
+    ghost.style.borderRadius = "999px";
+    ghost.style.padding = "0.15rem 0.6rem";
 
-        function onUp(upEvt) {
-          document.removeEventListener("mousemove", onMove);
-          document.removeEventListener("mouseup", onUp);
-          if (ghost.parentNode) {
-            ghost.parentNode.removeChild(ghost);
-          }
+    document.body.appendChild(ghost);
+    updateGhostPosition(startEvt);
+  }
 
-          const rect = imgEl.getBoundingClientRect();
-          const x = upEvt.clientX;
-          const y = upEvt.clientY;
+  function onMove(moveEvt) {
+    const dx = moveEvt.clientX - startX;
+    const dy = moveEvt.clientY - startY;
+    const distSq = dx * dx + dy * dy;
 
-          // Only place the tag if the drop ends inside the image bounds
-          if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
-            return;
-          }
+    // Only start a drag if the mouse has moved a bit (e.g. > 5px)
+    if (!isDragging) {
+      if (distSq < 25) {
+        return; // still just a click, not a drag
+      }
+      startDrag(moveEvt);
+      return;
+    }
 
-          const xPercent = ((x - rect.left) / rect.width) * 100;
-          const yPercent = ((y - rect.top) / rect.height) * 100;
+    updateGhostPosition(moveEvt);
+  }
 
-          const tagObj = currentTags.find(t => t.id === tag.id);
-          if (!tagObj) return;
+  function onUp(upEvt) {
+    document.removeEventListener("mousemove", onMove);
+    document.removeEventListener("mouseup", onUp);
 
-          tagObj.x = Math.min(100, Math.max(0, xPercent));
-          tagObj.y = Math.min(100, Math.max(0, yPercent));
+    // If we never started dragging, do nothing.
+    // (Click/double-click behavior is handled by the dblclick handler.)
+    if (!isDragging) {
+      return;
+    }
 
-          const entry = getCurrentEntryObject();
-          if (entry) {
-            entry.tags = [...currentTags];
-            entry.updatedAt = new Date().toISOString();
-            journalService.saveAll(entries);
-            renderTagsOnImage();
-            updateStatus("Tag placed on image");
-          }
-        }
+    if (ghost && ghost.parentNode) {
+      ghost.parentNode.removeChild(ghost);
+    }
 
-        document.addEventListener("mousemove", onMove);
-        document.addEventListener("mouseup", onUp);
-      });
+    const rect = imgEl.getBoundingClientRect();
+    const x = upEvt.clientX;
+    const y = upEvt.clientY;
+
+    // Only place the tag if the drop ends inside the image bounds
+    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+      return;
+    }
+
+    const xPercent = ((x - rect.left) / rect.width) * 100;
+    const yPercent = ((y - rect.top) / rect.height) * 100;
+
+    const tagObj = currentTags.find(t => t.id === tag.id);
+    if (!tagObj) return;
+
+    tagObj.x = Math.min(100, Math.max(0, xPercent));
+    tagObj.y = Math.min(100, Math.max(0, yPercent));
+
+    const entry = getCurrentEntryObject();
+    if (entry) {
+      entry.tags = [...currentTags];
+      entry.updatedAt = new Date().toISOString();
+      journalService.saveAll(entries);
+      renderTagsOnImage();
+      updateStatus("Tag placed on image");
+    }
+  }
+
+  document.addEventListener("mousemove", onMove);
+  document.addEventListener("mouseup", onUp);
+});
+
 
       listEl.appendChild(pill);
     });
   }
-
-
 
   function setupTagDialog() {
     tagDialogBackdrop = document.createElement("div");
@@ -767,18 +1017,24 @@ document.addEventListener("DOMContentLoaded", () => {
         <div class="tag-dialog-colors" id="tag-dialog-colors"></div>
       </div>
       <div class="tag-dialog-buttons">
-        <button type="button" class="btn-secondary" id="tag-dialog-cancel">Cancel</button>
-        <button type="button" class="btn-primary" id="tag-dialog-apply">Apply</button>
+        <button type="button" class="btn-danger" id="tag-dialog-delete">Delete tag</button>
+        <div class="tag-dialog-buttons-right">
+          <button type="button" class="btn-secondary" id="tag-dialog-cancel">Cancel</button>
+          <button type="button" class="btn-primary" id="tag-dialog-apply">Apply</button>
+        </div>
       </div>
     `;
 
     tagDialogBackdrop.appendChild(dialog);
     document.body.appendChild(tagDialogBackdrop);
+    // Hidden by default; opened via openTagDialog()
+    tagDialogBackdrop.classList.add("hidden");
 
     tagDialogInput = dialog.querySelector("#tag-dialog-input");
     const colorsContainer = dialog.querySelector("#tag-dialog-colors");
     const applyBtn = dialog.querySelector("#tag-dialog-apply");
     const cancelBtn = dialog.querySelector("#tag-dialog-cancel");
+    tagDialogDeleteBtn = dialog.querySelector("#tag-dialog-delete");
 
     TAG_COLORS.forEach(color => {
       const swatch = document.createElement("button");
@@ -804,6 +1060,12 @@ document.addEventListener("DOMContentLoaded", () => {
       applyTagDialogChanges();
     });
 
+    if (tagDialogDeleteBtn) {
+      tagDialogDeleteBtn.addEventListener("click", () => {
+        deleteActiveTag();
+      });
+    }
+
     tagDialogBackdrop.addEventListener("click", (evt) => {
       if (evt.target === tagDialogBackdrop) {
         hideTagDialog();
@@ -811,48 +1073,103 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  function openTagDialog(tagId) {
-    const tag = currentTags.find(t => t.id === tagId);
-    if (!tag || !tagDialogBackdrop) return;
-
+  function openTagDialog(tagId, mode = "edit") {
+    tagDialogMode = mode;
     tagDialogActiveTagId = tagId;
-    if (tagDialogInput) tagDialogInput.value = tag.text || "";
 
-    const color = tag.color || TAG_COLORS[0];
-    tagDialogColorSwatches.forEach(swatch => {
-      if (swatch.dataset.color === color) {
-        swatch.classList.add("selected");
-      } else {
-        swatch.classList.remove("selected");
+    // Reset selection state each time
+    tagDialogColorSwatches.forEach(s => s.classList.remove("selected"));
+
+    if (mode === "edit") {
+      const tag = currentTags.find(t => t.id === tagId);
+      if (!tag || !tagDialogBackdrop) return;
+
+      if (tagDialogInput) tagDialogInput.value = tag.text || "";
+
+      const color = tag.color || TAG_COLORS[0];
+      let matched = false;
+      tagDialogColorSwatches.forEach(swatch => {
+        if (swatch.dataset.color === color) {
+          swatch.classList.add("selected");
+          matched = true;
+        }
+      });
+      if (!matched && tagDialogColorSwatches[0]) {
+        tagDialogColorSwatches[0].classList.add("selected");
       }
-    });
 
-    tagDialogBackdrop.style.display = "flex";
+      if (tagDialogDeleteBtn) {
+        tagDialogDeleteBtn.classList.remove("hidden");
+      }
+    } else {
+      // create mode: new tag, not yet added
+      if (tagDialogInput) tagDialogInput.value = "";
+
+      if (tagDialogColorSwatches[0]) {
+        tagDialogColorSwatches[0].classList.add("selected");
+      }
+
+      if (tagDialogDeleteBtn) {
+        // No delete for brand-new, not-yet-created tags
+        tagDialogDeleteBtn.classList.add("hidden");
+      }
+    }
+
+    if (tagDialogBackdrop) {
+      tagDialogBackdrop.classList.remove("hidden");
+    }
     if (tagDialogInput) tagDialogInput.focus();
   }
 
   function hideTagDialog() {
     if (tagDialogBackdrop) {
-      tagDialogBackdrop.style.display = "none";
+      tagDialogBackdrop.classList.add("hidden");
     }
     tagDialogActiveTagId = null;
+    tagDialogMode = "edit";
   }
 
   function applyTagDialogChanges() {
-    if (!tagDialogActiveTagId) return;
-
-    const tag = currentTags.find(t => t.id === tagDialogActiveTagId);
-    if (!tag) return;
-
-    if (tagDialogInput) tag.text = tagDialogInput.value || "Tag";
-
-    const selectedSwatch = tagDialogColorSwatches.find(s => s.classList.contains("selected"));
-    if (selectedSwatch) {
-      tag.color = selectedSwatch.dataset.color || tag.color;
+    const entry = getCurrentEntryObject();
+    if (!entry) {
+      hideTagDialog();
+      return;
     }
 
-    const entry = getCurrentEntryObject();
-    if (entry) {
+    const textValue = tagDialogInput ? (tagDialogInput.value || "Tag") : "Tag";
+    const selectedSwatch = tagDialogColorSwatches.find(s => s.classList.contains("selected"));
+    const colorValue = selectedSwatch ? (selectedSwatch.dataset.color || TAG_COLORS[0]) : TAG_COLORS[0];
+
+    if (tagDialogMode === "create") {
+      // Create a brand-new tag, only after user hits Apply
+      const newTag = {
+        id: generateId(),
+        text: textValue,
+        color: colorValue
+        // no x/y yet -> lives only in tag bar until placed
+      };
+
+      currentTags.push(newTag);
+      entry.tags = [...currentTags];
+      entry.updatedAt = new Date().toISOString();
+      journalService.saveAll(entries);
+      updateStatus("Tag created");
+    } else {
+      // Edit existing tag
+      if (!tagDialogActiveTagId) {
+        hideTagDialog();
+        return;
+      }
+
+      const tag = currentTags.find(t => t.id === tagDialogActiveTagId);
+      if (!tag) {
+        hideTagDialog();
+        return;
+      }
+
+      tag.text = textValue;
+      tag.color = colorValue;
+
       entry.tags = [...currentTags];
       entry.updatedAt = new Date().toISOString();
       journalService.saveAll(entries);
@@ -864,31 +1181,247 @@ document.addEventListener("DOMContentLoaded", () => {
     hideTagDialog();
   }
 
-function createNewTagAtCenter() {
- const entry = getCurrentEntryObject();
- if (!entry) {
-   updateStatus("Create an entry first.");
-   return;
- }
+  function deleteActiveTag() {
+    if (!tagDialogActiveTagId) {
+      hideTagDialog();
+      return;
+    }
 
- const newTag = {
-   id: generateId(),
-   text: "Tag",
-   color: TAG_COLORS[0]
- };
+    const idx = currentTags.findIndex(t => t.id === tagDialogActiveTagId);
+    if (idx === -1) {
+      hideTagDialog();
+      return;
+    }
 
- currentTags.push(newTag);
- entry.tags = [...currentTags];
- entry.updatedAt = new Date().toISOString();
- journalService.saveAll(entries);
+    currentTags.splice(idx, 1);
 
- renderTagsOnImage();
- renderEntryTagBar();
- openTagDialog(newTag.id);
-}
+    const entry = getCurrentEntryObject();
+    if (entry) {
+      entry.tags = [...currentTags];
+      entry.updatedAt = new Date().toISOString();
+      journalService.saveAll(entries);
+      updateStatus("Tag deleted");
+    }
+
+    renderTagsOnImage();
+    renderEntryTagBar();
+    hideTagDialog();
+  }
+
+  function createNewTagAtCenter() {
+    const entry = getCurrentEntryObject();
+    if (!entry) {
+      updateStatus("Create an entry first.");
+      return;
+    }
+
+    // Open the tag dialog in "create" mode. We will actually create/persist
+    // the tag only after the user hits Apply.
+    openTagDialog(null, "create");
+  }
+
 
 
   // ============================================
+  // Delete Confirm Dialog
+  // ============================================
+
+  let deleteConfirmBackdrop = null;
+
+  function ensureDeleteConfirmDialog() {
+    if (deleteConfirmBackdrop) return;
+
+    deleteConfirmBackdrop = document.createElement("div");
+    deleteConfirmBackdrop.className = "confirm-backdrop";
+    deleteConfirmBackdrop.id = "delete-confirm-backdrop";
+
+    const dialog = document.createElement("div");
+    dialog.className = "confirm-dialog";
+    dialog.innerHTML = `
+      <button type="button" class="confirm-close-x" aria-label="Close dialog">×</button>
+      <h3 class="confirm-title">Are you sure?</h3>
+      <div class="confirm-actions">
+        <button type="button" class="confirm-circle-btn" id="delete-confirm-yes" aria-label="Confirm delete">✓</button>
+        <button type="button" class="confirm-circle-btn" id="delete-confirm-no" aria-label="Cancel delete">×</button>
+      </div>
+    `;
+
+    deleteConfirmBackdrop.appendChild(dialog);
+    document.body.appendChild(deleteConfirmBackdrop);
+
+    // Hidden by default; opened via openDeleteConfirm()
+    deleteConfirmBackdrop.classList.add("hidden");
+
+    // Click outside closes (cancel)
+    deleteConfirmBackdrop.addEventListener("click", (e) => {
+      if (e.target === deleteConfirmBackdrop) closeDeleteConfirm();
+    });
+
+    // Buttons
+    const yesBtn = dialog.querySelector("#delete-confirm-yes");
+    const noBtn = dialog.querySelector("#delete-confirm-no");
+
+    const closeXBtn = dialog.querySelector(".confirm-close-x");
+    if (closeXBtn) {
+      closeXBtn.addEventListener("click", () => {
+        closeDeleteConfirm();
+      });
+    }
+
+    yesBtn.addEventListener("click", () => {
+      closeDeleteConfirm();
+      deleteCurrentEntryShowPrev();
+    });
+
+    noBtn.addEventListener("click", () => {
+      closeDeleteConfirm();
+    });
+
+    // Escape closes (cancel)
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && isDeleteConfirmOpen()) {
+        closeDeleteConfirm();
+      }
+    });
+  }
+
+  function isDeleteConfirmOpen() {
+    return !!deleteConfirmBackdrop && !deleteConfirmBackdrop.classList.contains("hidden");
+  }
+
+  function openDeleteConfirm() {
+    if (!currentEntryId) return;
+    ensureDeleteConfirmDialog();
+    deleteConfirmBackdrop.classList.remove("hidden");
+  }
+
+  function closeDeleteConfirm() {
+    if (!deleteConfirmBackdrop) return;
+    deleteConfirmBackdrop.classList.add("hidden");
+  }
+
+  /**
+   * Delete the current entry and then show the PREVIOUS entry (chronologically).
+   * If the deleted entry was the first, show the new first entry.
+   * If there are no entries left, clear the editor.
+   */
+  function deleteCurrentEntryShowPrev() {
+    if (!currentEntryId) return;
+
+    const sortedBefore = getChronologicallySortedEntries();
+    const sortedIdx = sortedBefore.findIndex(e => e.id === currentEntryId);
+    if (sortedIdx === -1) return;
+
+    // Remove from the main entries array by ID (safer than index assumptions)
+    const rawIdx = entries.findIndex(e => e.id === currentEntryId);
+    if (rawIdx === -1) return;
+
+    entries.splice(rawIdx, 1);
+    journalService.saveAll(entries);
+
+    const sortedAfter = getChronologicallySortedEntries();
+    if (sortedAfter.length === 0) {
+      currentEntryId = null;
+      editorInnerEl.innerHTML = "";
+      updateNavButtons();
+      renderCalendar();
+      currentDayIso = null;
+      currentDayEntries = [];
+      renderDayResults();
+      return;
+    }
+
+    const targetIdx = Math.max(0, sortedIdx - 1);
+    goToEntryAtIndex(targetIdx);
+  }
+
+  
+  // ============================================
+  // Photo Remove Confirm Dialog
+  // Mirrors the entry delete confirm dialog in
+  // function + style (same classes / behavior).
+  // ============================================
+
+  let photoRemoveConfirmBackdrop = null;
+
+  function ensurePhotoRemoveConfirmDialog() {
+    if (photoRemoveConfirmBackdrop) return;
+
+    photoRemoveConfirmBackdrop = document.createElement("div");
+    photoRemoveConfirmBackdrop.className = "confirm-backdrop";
+    photoRemoveConfirmBackdrop.id = "photo-remove-confirm-backdrop";
+
+    const dialog = document.createElement("div");
+    dialog.className = "confirm-dialog";
+    dialog.innerHTML = `
+      <button type="button" class="confirm-close-x" aria-label="Close dialog">×</button>
+      <h3 class="confirm-title">Are you sure?</h3>
+      <div class="confirm-actions">
+        <button type="button" class="confirm-circle-btn" id="photo-remove-confirm-yes" aria-label="Confirm remove photo">✓</button>
+        <button type="button" class="confirm-circle-btn" id="photo-remove-confirm-no" aria-label="Cancel remove photo">×</button>
+      </div>
+    `;
+
+    photoRemoveConfirmBackdrop.appendChild(dialog);
+    document.body.appendChild(photoRemoveConfirmBackdrop);
+
+    // Hidden by default; opened via openPhotoRemoveConfirm()
+    photoRemoveConfirmBackdrop.classList.add("hidden");
+
+    // Click outside closes (cancel)
+    photoRemoveConfirmBackdrop.addEventListener("click", (e) => {
+      if (e.target === photoRemoveConfirmBackdrop) closePhotoRemoveConfirm();
+    });
+
+    // Buttons
+    const yesBtn = dialog.querySelector("#photo-remove-confirm-yes");
+    const noBtn = dialog.querySelector("#photo-remove-confirm-no");
+
+    const closeXBtn = dialog.querySelector(".confirm-close-x");
+    if (closeXBtn) {
+      closeXBtn.addEventListener("click", () => {
+        closePhotoRemoveConfirm();
+      });
+    }
+
+    yesBtn.addEventListener("click", async () => {
+      closePhotoRemoveConfirm();
+      await removePhotoFromCurrentEntry();
+    });
+
+    noBtn.addEventListener("click", () => {
+      closePhotoRemoveConfirm();
+    });
+
+    // Escape closes (cancel)
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && isPhotoRemoveConfirmOpen()) {
+        closePhotoRemoveConfirm();
+      }
+    });
+  }
+
+  function isPhotoRemoveConfirmOpen() {
+    return (
+      !!photoRemoveConfirmBackdrop &&
+      !photoRemoveConfirmBackdrop.classList.contains("hidden")
+    );
+  }
+
+  function openPhotoRemoveConfirm() {
+    const entry = getCurrentEntryObject();
+    if (!entry || !entry.imageId) return;
+    ensurePhotoRemoveConfirmDialog();
+    photoRemoveConfirmBackdrop.classList.remove("hidden");
+  }
+
+  function closePhotoRemoveConfirm() {
+    if (!photoRemoveConfirmBackdrop) return;
+    photoRemoveConfirmBackdrop.classList.add("hidden");
+  }
+
+
+// ============================================
   // CRUD: New / Save / Delete / Navigation
   // ============================================
 
@@ -903,6 +1436,7 @@ function createNewTagAtCenter() {
 
     entries.push(fresh);
     currentEntryId = fresh.id;
+    calendarSelectedIso = fresh.date;
     renderEditor(fresh);
     updateNavButtons();
     renderCalendar();
@@ -912,7 +1446,6 @@ function createNewTagAtCenter() {
     showJournalView();
     updateStatus("New entry created");
   }
-
   function saveCurrentEntry() {
     const entry = getCurrentEntryObject();
     if (!entry) return;
@@ -928,13 +1461,41 @@ function createNewTagAtCenter() {
     entry.tags = [...currentTags];
     entry.updatedAt = new Date().toISOString();
 
+    // Keep calendar highlight aligned to the entry the user just saved.
+    if (entry.date) calendarSelectedIso = entry.date;
+
     journalService.saveAll(entries);
     updateNavButtons();
     renderCalendar();
+    flashSaveButton();
     updateStatus("Entry saved");
+
+    // If search is visible, day-results stays hidden (no stacking).
+    // Otherwise, day-results should follow the saved entry's date.
+    if (!isSearchVisible()) {
+      const sorted = getChronologicallySortedEntries();
+      const iso = entry.date || null;
+
+      if (iso) {
+        const sameDay = sorted.filter(e => e.date === iso);
+        if (sameDay.length > 1) {
+          currentDayIso = iso;
+          currentDayEntries = sameDay;
+        } else {
+          currentDayIso = null;
+          currentDayEntries = [];
+        }
+      } else {
+        currentDayIso = null;
+        currentDayEntries = [];
+      }
+
+      renderDayResults();
+    }
   }
 
-  function deleteCurrentEntry() {
+
+function deleteCurrentEntry() {
     if (!currentEntryId) return;
     const idx = entries.findIndex(e => e.id === currentEntryId);
     if (idx === -1) return;
@@ -969,6 +1530,7 @@ function createNewTagAtCenter() {
 
     const target = sorted[idx];
     currentEntryId = target.id;
+    calendarSelectedIso = target.date || calendarSelectedIso;
     renderEditor(target);
     updateNavButtons();
     renderCalendar();
@@ -1016,6 +1578,8 @@ function createNewTagAtCenter() {
   }
 
   function openEntryFromSearch(entryId) {
+    // Mark that the user has clicked a result during this search session.
+    searchPickedEntryId = entryId;
     const sorted = getChronologicallySortedEntries();
     const idx = sorted.findIndex(e => e.id === entryId);
     if (idx === -1) return;
@@ -1043,7 +1607,13 @@ function createNewTagAtCenter() {
 
   function runSearch(query) {
     const q = (query || "").trim();
-    const qLower = q.toLowerCase();
+
+    // Remember what entry the user was on when search opened.
+    // If they pick a result, we keep the picked entry on close.
+    if (!searchOpenedFromEntryId) {
+      searchOpenedFromEntryId = currentEntryId || null;
+    }
+    searchPickedEntryId = null;
 
     // Search should always clear day-results so it doesn't stack under the card
     currentDayIso = null;
@@ -1051,30 +1621,34 @@ function createNewTagAtCenter() {
     renderDayResults();
 
     if (!q) {
-      // Empty query -> show helpful message in card
-      if (searchResultsEl) {
-        searchResultsEl.innerHTML = "";
-        const msg = document.createElement("div");
-        msg.className = "search-result-snippet";
-        msg.textContent = "Type in the search box and press Enter to search.";
-        searchResultsEl.appendChild(msg);
-      }
+      // MED-lite Step 2: Search results rendering must flow through renderSearchResults()
+      renderSearchResults([], { state: "emptyQuery" });
       showSearchOnlyView();
       updateStatus("Search cleared");
       return;
     }
 
+    const qLower = q.toLowerCase();
     const results = entries.filter(e => entryMatchesQuery(e, qLower));
     results.sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
 
-    renderSearchResults(results);
+    renderSearchResults(results, { state: "results", query: q });
     showSearchOnlyView();
     updateStatus(`Found ${results.length} result${results.length === 1 ? "" : "s"}`);
   }
 
-  function renderSearchResults(results) {
+  function renderSearchResults(results, opts = {}) {
     if (!searchResultsEl) return;
     searchResultsEl.innerHTML = "";
+
+    // MED-lite Step 2: ALL search card contents (empty state + results list) render here.
+    if (opts.state === "emptyQuery") {
+      const msg = document.createElement("div");
+      msg.className = "search-result-snippet";
+      msg.textContent = "Type in the search box and press Enter to search.";
+      searchResultsEl.appendChild(msg);
+      return;
+    }
 
     if (!results || results.length === 0) {
       const msg = document.createElement("div");
@@ -1168,7 +1742,8 @@ function createNewTagAtCenter() {
     const todayIso = formatDateForInput(new Date());
     const sorted = getChronologicallySortedEntries();
     const currentEntry = getCurrentEntryObject();
-    const selectedDateIso = currentEntry?.date || null;
+    // Highlight the last calendar-selected day when available; otherwise fall back to current entry date.
+    const selectedDateIso = calendarSelectedIso || currentEntry?.date || null;
 
     for (let day = 1; day <= daysInMonth; day++) {
       const dateObj = new Date(year, month, day);
@@ -1223,11 +1798,11 @@ function createNewTagAtCenter() {
 
     dayResultsEl.innerHTML = "";
     if (!currentDayIso || !currentDayEntries || currentDayEntries.length === 0) {
-      dayResultsEl.style.display = "none";
+      hideEl(dayResultsEl);
       return;
     }
 
-    dayResultsEl.style.display = "block";
+    showEl(dayResultsEl);
 
     const card = document.createElement("div");
     card.className = "day-results-card";
@@ -1279,6 +1854,9 @@ function createNewTagAtCenter() {
     const sorted = getChronologicallySortedEntries();
     const sameDayEntries = sorted.filter(e => e.date === isoDate);
 
+    // Track calendar selection independently of whether we show a day-results card.
+    calendarSelectedIso = isoDate;
+
     // Calendar selection should exit search mode
     showJournalView();
 
@@ -1286,14 +1864,25 @@ function createNewTagAtCenter() {
       currentDayIso = null;
       currentDayEntries = [];
       renderDayResults();
+      renderCalendar();
       return;
     }
 
-    currentDayIso = isoDate;
-    currentDayEntries = sameDayEntries;
+    // Only show the day-results card for multi-entry days (consistent with prev/next behavior)
+    if (sameDayEntries.length > 1) {
+      currentDayIso = isoDate;
+      currentDayEntries = sameDayEntries;
+    } else {
+      currentDayIso = null;
+      currentDayEntries = [];
+    }
     renderDayResults();
 
+    // Open the first entry for the day (the day-results card lets the user pick others if multiple exist)
     openEntryById(sameDayEntries[0].id);
+
+    // Ensure the calendar highlight stays in sync after navigation
+    renderCalendar();
   }
 
   // ============================================
@@ -1331,6 +1920,7 @@ function createNewTagAtCenter() {
       const sorted = getChronologicallySortedEntries();
       const mostRecent = sorted[sorted.length - 1];
       currentEntryId = mostRecent.id;
+      calendarSelectedIso = mostRecent.date || null;
       renderEditor(mostRecent);
       updateNavButtons();
       renderCalendar();
@@ -1356,7 +1946,7 @@ function createNewTagAtCenter() {
     }
 
     if (deleteBtnTop) {
-      deleteBtnTop.addEventListener("click", deleteCurrentEntry);
+      deleteBtnTop.addEventListener("click", openDeleteConfirm);
     }
 
     if (prevBtn) {
@@ -1369,12 +1959,6 @@ function createNewTagAtCenter() {
 
     if (exportBtn) {
       exportBtn.addEventListener("click", exportEntries);
-    }
-
-    if (journalViewBtn) {
-      journalViewBtn.addEventListener("click", () => {
-        showJournalView();
-      });
     }
 
     // Search events
@@ -1396,6 +1980,13 @@ function createNewTagAtCenter() {
       });
     }
 
+
+    if (searchCloseBtn) {
+      searchCloseBtn.addEventListener("click", () => {
+        closeSearchResults();
+      });
+    }
+
     // Calendar nav
     if (calendarPrevBtn) {
       calendarPrevBtn.addEventListener("click", () => changeCalendarMonth(-1));
@@ -1407,5 +1998,3 @@ function createNewTagAtCenter() {
 
   init();
 });
-
-

@@ -17,8 +17,6 @@
       <div class="app-header-actions">
         <div id="status-text" class="status-text"></div>
         <button id="export-btn" class="btn-outline">Export JSON</button>
-        <button id="import-btn" class="btn-outline">Import JSON</button>
-        <input id="import-file-input" type="file" accept="application/json" class="hidden" />
       </div>
     </div>
   </header>
@@ -120,14 +118,14 @@
     </aside>
 
     <main class="main">
-      <div class="editor-card card">
+      <div class="editor-card">
         <div class="editor-toolbar"></div>
 
         <div class="page-wrapper">
           <div id="day-results" class="page page-results hidden"></div>
 
           <section id="page-search" class="page page-search hidden">
-            <div class="search-card card">
+            <div class="search-card">
               <div class="search-card-header">
                 <h2 class="search-title">Search Results</h2>
                 <button
@@ -170,12 +168,8 @@
           </div>
 
           <section id="page-journal" class="page page-journal">
-
-            <!-- Journal editor -->
-<div id="editor-inner" class="editor-inner"></div>
-
+            <div id="editor-inner" class="editor-inner"></div>
           </section>
-
         </div>
       </div>
     </main>

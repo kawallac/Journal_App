@@ -140,33 +140,6 @@ h1, h2, h3, h4 {
   font-weight: var(--fw-semibold);
 }
 
-
-
-/* Search results: title row with optional journal badge (for all-journal searches) */
-.search-result-title-row {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  min-width: 0;
-}
-
-.search-result-title-text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.search-result-badge {
-  flex: 0 0 auto;
-  font-size: 0.72rem;
-  line-height: 1;
-  padding: 0.18rem 0.45rem;
-  border-radius: 999px;
-  border: 1px solid rgba(0,0,0,0.12);
-  background: rgba(0,0,0,0.03);
-}
-
 .search-result-snippet,
 .day-result-meta,
 .image-note,
@@ -754,33 +727,6 @@ button {
   gap: 0.75rem;
 }
 
-.image-upload-row-stacked {
-  flex-direction: column;
-  align-items: flex-start;
-}
-
-.image-upload-row-stacked .btn-secondary {
-  margin-top: 0.25rem;
-}
-
-
-/* Dual photo inputs (Choose file + Camera) */
-.image-upload-row-dual {
-  flex-wrap: wrap;
-  align-items: flex-start;
-}
-
-.image-upload-col {
-  flex: 1 1 220px;
-  min-width: 220px;
-}
-
-.field-hint {
-  margin-top: 0.25rem;
-  font-size: 0.85rem;
-  color: var(--text-muted);
-}
-
 .image-note {
   font-size: 0.75rem;
   color: var(--text-muted);
@@ -1029,13 +975,6 @@ button {
   color: var(--text-muted);
 }
 
-.search-limit-note {
-  margin-top: 0.5rem;
-  margin-bottom: 0.5rem;
-  font-style: italic;
-}
-
-
 /* ============================================
    Day results card (calendar multi-entry days)
    ============================================ */
@@ -1210,44 +1149,6 @@ button {
     align-items: flex-start;
   }
 }
-
-
-/* ============================================
-   Photo Source Menu (secondary menu)
-   ============================================ */
-
-.photo-source-dialog {
-  position: relative;
-  background: var(--surface);
-  border-radius: var(--radius-md);
-  padding: 0.95rem;
-  width: min(340px, 92vw);
-  box-shadow: var(--shadow-dialog);
-  border: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  gap: 0.8rem;
-}
-
-.photo-source-title {
-  margin: 0;
-  font-size: 1rem;
-  font-weight: 650;
-  color: #111827;
-}
-
-.photo-source-actions {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 0.6rem;
-}
-
-@media (min-width: 520px) {
-  .photo-source-actions {
-    grid-template-columns: 1fr 1fr;
-  }
-}
-
 
 /* ============================================
    THEME PASS 4 — Cards & Surfaces
